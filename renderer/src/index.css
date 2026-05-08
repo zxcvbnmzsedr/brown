@@ -1,0 +1,78 @@
+:root {
+  --bg: #f5f7fb;
+  --bg-top: #eef5ff;
+  --surface: rgba(255, 255, 255, 0.82);
+  --surface-solid: #ffffff;
+  --surface-soft: rgba(246, 249, 253, 0.92);
+  --border: rgba(128, 143, 166, 0.22);
+  --border-strong: rgba(113, 128, 150, 0.36);
+  --text: #162033;
+  --text-muted: #6b778c;
+  --primary: #3478f6;
+  --primary-dark: #155bd8;
+  --primary-soft: #eaf2ff;
+  --mint: #32c786;
+  --mint-soft: #e7f8f0;
+  --amber: #c98211;
+  --amber-soft: #fff4dc;
+  --rose: #e34a5f;
+  --rose-soft: #fff0f3;
+  --violet: #7a73e8;
+  --shadow: 0 18px 45px rgba(50, 69, 103, 0.1);
+  --shadow-soft: 0 8px 24px rgba(50, 69, 103, 0.07);
+  --blur: saturate(160%) blur(18px);
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", "Segoe UI",
+    system-ui, sans-serif;
+
+  font-family: var(--font-sans);
+  color: var(--text);
+  background:
+    radial-gradient(circle at 20% 0%, rgba(128, 184, 255, 0.28), transparent 32rem),
+    linear-gradient(180deg, var(--bg-top), var(--bg) 22rem);
+  font-synthesis: none;
+  letter-spacing: 0;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgba(52, 120, 246, 0.24);
+  outline-offset: 2px;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
