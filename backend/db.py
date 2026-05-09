@@ -46,18 +46,44 @@ def ensure_compatible_schema() -> None:
     if not inspector.has_table("assets"):
         return
 
-    columns = {column["name"] for column in inspector.get_columns("assets")}
+    asset_columns = {column["name"] for column in inspector.get_columns("assets")}
     alter_statements = []
-    if "group_id" not in columns:
+    if "group_id" not in asset_columns:
         alter_statements.append("ALTER TABLE assets ADD COLUMN group_id INTEGER")
-    if "platform" not in columns:
+    if "platform" not in asset_columns:
         alter_statements.append("ALTER TABLE assets ADD COLUMN platform VARCHAR(120)")
-    if "is_active" not in columns:
+    if "is_active" not in asset_columns:
         alter_statements.append("ALTER TABLE assets ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1")
-    if "include_in_portfolio" not in columns:
+    if "include_in_portfolio" not in asset_columns:
         alter_statements.append("ALTER TABLE assets ADD COLUMN include_in_portfolio BOOLEAN NOT NULL DEFAULT 1")
-    if "last_fetched_at" not in columns:
+    if "last_fetched_at" not in asset_columns:
         alter_statements.append("ALTER TABLE assets ADD COLUMN last_fetched_at DATETIME")
+
+    if not inspector.has_table("opening_positions"):
+        alter_statements.append(
+            """
+            CREATE TABLE opening_positions (
+                id INTEGER NOT NULL,
+                asset_id INTEGER NOT NULL,
+                date DATE NOT NULL,
+                qty FLOAT NOT NULL,
+                cost_price FLOAT NOT NULL,
+                current_price FLOAT NOT NULL,
+                note TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                PRIMARY KEY (id),
+                UNIQUE (asset_id),
+                FOREIGN KEY(asset_id) REFERENCES assets (id) ON DELETE CASCADE
+            )
+            """
+        )
+        alter_statements.extend(
+            [
+                "CREATE INDEX ix_opening_positions_id ON opening_positions (id)",
+                "CREATE UNIQUE INDEX ix_opening_positions_asset_id ON opening_positions (asset_id)",
+                "CREATE INDEX ix_opening_positions_date ON opening_positions (date)",
+            ]
+        )
 
     if alter_statements:
         with engine.begin() as connection:

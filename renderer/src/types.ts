@@ -116,6 +116,39 @@ export interface TransactionPayload {
   note: string | null
 }
 
+export interface OpeningPosition {
+  id: number
+  asset_id: number
+  asset_name: string
+  asset_code: string | null
+  asset_exchange: string | null
+  include_in_portfolio: boolean
+  date: string
+  qty: number
+  cost_price: number
+  current_price: number
+  note: string | null
+  created_at: string
+}
+
+export interface OpeningPositionPayload {
+  asset_id: number
+  date: string
+  qty: number
+  cost_price: number
+  current_price: number
+  note: string | null
+}
+
+export interface OpeningPositionUpdate {
+  asset_id?: number
+  date?: string
+  qty?: number
+  cost_price?: number
+  current_price?: number
+  note?: string | null
+}
+
 export interface SnapshotItem {
   asset_id: number
   bucket_id: number | null

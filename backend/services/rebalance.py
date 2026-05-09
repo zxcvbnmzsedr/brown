@@ -168,14 +168,18 @@ def compute_rebalance_plan(db: Session) -> RebalancePlanResponse:
 
     all_assets = db.scalars(
         select(Asset)
-        .options(selectinload(Asset.group).selectinload(AssetGroup.bucket), selectinload(Asset.transactions))
+        .options(
+            selectinload(Asset.group).selectinload(AssetGroup.bucket),
+            selectinload(Asset.opening_position),
+            selectinload(Asset.transactions),
+        )
         .where(Asset.is_active == True, Asset.include_in_portfolio == True)
         .order_by(Asset.id)
     ).all()
 
     asset_positions: dict[int, tuple[float, float]] = {}
     for asset in all_assets:
-        qty, cost = calculate_position(asset.transactions)
+        qty, cost = calculate_position(asset.transactions, asset.opening_position)
         asset_positions[asset.id] = (qty, cost)
 
     bucket_details: list[BucketRebalanceDetail] = []

@@ -173,6 +173,15 @@
   align-items: start;
 }
 
+.ledger-page {
+  grid-template-columns: minmax(320px, 430px) minmax(0, 1fr);
+}
+
+.ledger-stack {
+  display: grid;
+  gap: 18px;
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

@@ -7,6 +7,9 @@ import type {
   CsvImportResult,
   FetchResult,
   GroupPayload,
+  OpeningPosition,
+  OpeningPositionPayload,
+  OpeningPositionUpdate,
   PortfolioBucket,
   PricePayload,
   RebalanceConfig,
@@ -92,6 +95,14 @@ export const api = {
   updateTransaction: (id: number, payload: TransactionUpdate) =>
     request<Transaction>(`/transactions/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteTransaction: (id: number) => request<void>(`/transactions/${id}`, { method: 'DELETE' }),
+
+  // Opening Positions
+  listOpeningPositions: () => request<OpeningPosition[]>('/opening-positions'),
+  createOpeningPosition: (payload: OpeningPositionPayload) =>
+    request<OpeningPosition>('/opening-positions', { method: 'POST', body: JSON.stringify(payload) }),
+  updateOpeningPosition: (id: number, payload: OpeningPositionUpdate) =>
+    request<OpeningPosition>(`/opening-positions/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteOpeningPosition: (id: number) => request<void>(`/opening-positions/${id}`, { method: 'DELETE' }),
 
   // Portfolio
   getSnapshot: () => request<Snapshot>('/portfolio/snapshot'),

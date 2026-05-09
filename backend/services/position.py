@@ -5,13 +5,20 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.models import Transaction
+from backend.models import OpeningPosition, Transaction
 from backend.utils.decimal_math import QTY_EPSILON, ZERO, quantize_money, quantize_qty, to_decimal
 
 
-def calculate_position(transactions: list[Transaction]) -> tuple[float, float]:
-    quantity = ZERO
-    cost_basis = ZERO
+def calculate_position(
+    transactions: list[Transaction],
+    opening_position: OpeningPosition | None = None,
+) -> tuple[float, float]:
+    quantity = to_decimal(opening_position.qty) if opening_position else ZERO
+    cost_basis = (
+        to_decimal(opening_position.qty) * to_decimal(opening_position.cost_price)
+        if opening_position
+        else ZERO
+    )
 
     for transaction in sorted(transactions, key=lambda item: (item.date, item.id)):
         qty = to_decimal(transaction.qty)
@@ -42,5 +49,8 @@ def get_current_quantity(db: Session, asset_id: int) -> float:
     transactions = db.scalars(
         select(Transaction).where(Transaction.asset_id == asset_id).order_by(Transaction.date, Transaction.id)
     ).all()
-    quantity, _cost = calculate_position(list(transactions))
+    opening_position = db.scalars(
+        select(OpeningPosition).where(OpeningPosition.asset_id == asset_id).limit(1)
+    ).first()
+    quantity, _cost = calculate_position(list(transactions), opening_position)
     return quantity

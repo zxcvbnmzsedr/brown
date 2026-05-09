@@ -64,6 +64,12 @@ class Asset(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    opening_position: Mapped[OpeningPosition | None] = relationship(
+        back_populates="asset",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        uselist=False,
+    )
     prices: Mapped[list[PriceCache]] = relationship(
         back_populates="asset",
         cascade="all, delete-orphan",
@@ -85,6 +91,21 @@ class Transaction(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
 
     asset: Mapped[Asset] = relationship(back_populates="transactions")
+
+
+class OpeningPosition(Base):
+    __tablename__ = "opening_positions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    qty: Mapped[float] = mapped_column(Float, nullable=False)
+    cost_price: Mapped[float] = mapped_column(Float, nullable=False)
+    current_price: Mapped[float] = mapped_column(Float, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+    asset: Mapped[Asset] = relationship(back_populates="opening_position")
 
 
 class PriceCache(Base):

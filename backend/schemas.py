@@ -161,6 +161,39 @@ class TransactionRead(TransactionBase):
     asset_name: str
 
 
+class OpeningPositionBase(BaseModel):
+    asset_id: int
+    date: Date
+    qty: float = Field(gt=0)
+    cost_price: float = Field(ge=0)
+    current_price: float = Field(ge=0)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class OpeningPositionCreate(OpeningPositionBase):
+    pass
+
+
+class OpeningPositionUpdate(BaseModel):
+    asset_id: int | None = None
+    date: Date | None = None
+    qty: float | None = Field(default=None, gt=0)
+    cost_price: float | None = Field(default=None, ge=0)
+    current_price: float | None = Field(default=None, ge=0)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class OpeningPositionRead(OpeningPositionBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    asset_name: str
+    asset_code: str | None = None
+    asset_exchange: str | None = None
+    include_in_portfolio: bool
+
+
 class SnapshotItem(BaseModel):
     asset_id: int
     bucket_id: int | None

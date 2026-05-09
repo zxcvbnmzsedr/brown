@@ -173,6 +173,136 @@ def test_mvp_portfolio_flow():
     cleanup_test_db()
 
 
+def test_opening_position_participates_in_snapshot_and_sell_validation():
+    reset_test_db()
+
+    with TestClient(app) as client:
+        structure = client.get("/portfolio/structure")
+        assert structure.status_code == 200
+        buckets = {bucket["name"]: bucket for bucket in structure.json()}
+        gold_group_id = buckets["黄金"]["groups"][0]["id"]
+
+        gold = client.post(
+            "/assets",
+            json=asset_payload(
+                group_id=gold_group_id,
+                name="黄金 ETF",
+                code="518880",
+                exchange="SH",
+            ),
+        )
+        assert gold.status_code == 201
+        gold_id = gold.json()["id"]
+
+        opening = client.post(
+            "/opening-positions",
+            json={
+                "asset_id": gold_id,
+                "date": TODAY,
+                "qty": 100,
+                "cost_price": 8,
+                "current_price": 10,
+                "note": "建账前持仓",
+            },
+        )
+        assert opening.status_code == 201
+        assert opening.json()["asset_name"] == "黄金 ETF"
+
+        snapshot = client.get("/portfolio/snapshot")
+        assert snapshot.status_code == 200
+        body = snapshot.json()
+        assert body["total_value"] == 1000
+        assert body["price_state"] == "ok"
+        item = body["items"][0]
+        assert item["quantity"] == 100
+        assert item["cost_basis"] == 800
+        assert item["average_cost"] == 8
+        assert item["current_value"] == 1000
+
+        sell = client.post(
+            "/transactions",
+            json={
+                "date": TODAY,
+                "asset_id": gold_id,
+                "type": "sell",
+                "qty": 40,
+                "price": 10,
+                "fee": 0,
+                "note": "卖出期初持仓",
+            },
+        )
+        assert sell.status_code == 201
+
+        snapshot_after_sell = client.get("/portfolio/snapshot")
+        assert snapshot_after_sell.status_code == 200
+        item_after_sell = snapshot_after_sell.json()["items"][0]
+        assert item_after_sell["quantity"] == 60
+        assert item_after_sell["cost_basis"] == 480
+
+        oversell = client.post(
+            "/transactions",
+            json={
+                "date": TODAY,
+                "asset_id": gold_id,
+                "type": "sell",
+                "qty": 100,
+                "price": 10,
+                "fee": 0,
+                "note": "too much",
+            },
+        )
+        assert oversell.status_code == 400
+
+        transactions = client.get("/transactions")
+        assert transactions.status_code == 200
+        assert len(transactions.json()) == 1
+
+    cleanup_test_db()
+
+
+def test_unclassified_opening_position_stays_out_of_portfolio_value():
+    reset_test_db()
+
+    with TestClient(app) as client:
+        asset = client.post(
+            "/assets",
+            json=asset_payload(
+                group_id=None,
+                name="待归类基金",
+                code="000001",
+                exchange="OF",
+                include_in_portfolio=False,
+            ),
+        )
+        assert asset.status_code == 201
+        asset_id = asset.json()["id"]
+
+        opening = client.post(
+            "/opening-positions",
+            json={
+                "asset_id": asset_id,
+                "date": TODAY,
+                "qty": 50,
+                "cost_price": 2,
+                "current_price": 3,
+                "note": None,
+            },
+        )
+        assert opening.status_code == 201
+
+        snapshot = client.get("/portfolio/snapshot")
+        assert snapshot.status_code == 200
+        body = snapshot.json()
+        assert body["total_value"] == 0
+        assert body["total_holdings_value"] == 150
+        assert body["pending_classification_count"] == 1
+        assert body["pending_classification_value"] == 150
+        assert body["items"] == []
+        assert len(body["all_items"]) == 1
+
+    cleanup_test_db()
+
+
 def test_rebalance_plan_blocks_when_prices_are_missing():
     reset_test_db()
 

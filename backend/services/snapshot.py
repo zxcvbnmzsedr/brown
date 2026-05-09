@@ -77,7 +77,11 @@ def build_snapshot(db: Session) -> SnapshotResponse:
     ).all()
     assets = db.scalars(
         select(Asset)
-        .options(selectinload(Asset.group).selectinload(AssetGroup.bucket), selectinload(Asset.transactions))
+        .options(
+            selectinload(Asset.group).selectinload(AssetGroup.bucket),
+            selectinload(Asset.opening_position),
+            selectinload(Asset.transactions),
+        )
         .order_by(Asset.id)
     ).all()
 
@@ -98,7 +102,7 @@ def build_snapshot(db: Session) -> SnapshotResponse:
 
         group = asset.group
         bucket = group.bucket if group else None
-        quantity, cost_basis = calculate_position(asset.transactions)
+        quantity, cost_basis = calculate_position(asset.transactions, asset.opening_position)
         price_record = latest_price_record_for_asset(db, asset) if asset.type != "cash" else None
         current_price = 1.0 if asset.type == "cash" else price_record.price if price_record else None
         price_state = _price_state(asset, price_record, max_price_age_days)

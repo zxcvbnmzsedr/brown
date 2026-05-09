@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.db import init_db
-from backend.routers import assets, buckets, csv_export, groups, history, portfolio, prices, rebalance, transactions
+from backend.routers import assets, buckets, csv_export, groups, history, opening_positions, portfolio, prices, rebalance, transactions
 from backend.services.scheduler import start_scheduler, stop_scheduler
 
 
@@ -35,6 +35,7 @@ app.add_middleware(
 app.include_router(buckets.router)
 app.include_router(groups.router)
 app.include_router(assets.router)
+app.include_router(opening_positions.router)
 app.include_router(transactions.router)
 app.include_router(portfolio.router)
 app.include_router(rebalance.router)

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   Asset,
   FetchResult,
+  OpeningPosition,
   PortfolioBucket,
   RebalanceHistoryRead,
   RebalancePlanResponse,
@@ -55,6 +56,10 @@ export function useAssets() {
 
 export function useTransactions() {
   return useAsyncData<Transaction[]>(api.listTransactions)
+}
+
+export function useOpeningPositions() {
+  return useAsyncData<OpeningPosition[]>(api.listOpeningPositions)
 }
 
 export function useSnapshot() {
