@@ -2,11 +2,16 @@ import { Camera } from 'lucide-react'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { useSnapshotHistory } from '../api/hooks'
+import type { SnapshotHistoryRead } from '../types'
 import { formatMoney } from '../utils/format'
 
 const CHART_PADDING = { top: 20, right: 20, bottom: 40, left: 80 }
 const CHART_WIDTH = 900
 const CHART_HEIGHT = 360
+
+function isValidSnapshot(snapshot: SnapshotHistoryRead | null | undefined): snapshot is SnapshotHistoryRead {
+  return Boolean(snapshot && snapshot.recorded_at)
+}
 
 export function HistoryPage() {
   const { data, loading, refresh } = useSnapshotHistory()
@@ -14,7 +19,7 @@ export function HistoryPage() {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
 
-  const snapshots = data ?? []
+  const snapshots = useMemo(() => (data ?? []).filter(isValidSnapshot), [data])
 
   const latest = snapshots.length > 0 ? snapshots[0] : null
 
@@ -52,9 +57,9 @@ export function HistoryPage() {
     })
 
     const xTickCount = Math.min(sorted.length, 8)
-    const xStep = Math.max(1, Math.floor((sorted.length - 1) / (xTickCount - 1)))
+    const xStep = xTickCount > 1 ? Math.max(1, Math.floor((sorted.length - 1) / (xTickCount - 1))) : 1
     const xLabels = Array.from({ length: xTickCount }, (_, i) => {
-      const idx = Math.min(i * xStep, sorted.length - 1)
+      const idx = xTickCount === 1 ? 0 : Math.min(i * xStep, sorted.length - 1)
       const d = new Date(sorted[idx].recorded_at)
       return {
         label: `${d.getMonth() + 1}/${d.getDate()}`,
