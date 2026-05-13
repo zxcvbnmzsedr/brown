@@ -101,6 +101,25 @@ def upgrade() -> None:
     op.create_index(op.f("ix_instrument_prices_instrument_id"), "instrument_prices", ["instrument_id"])
 
     op.create_table(
+        "instrument_import_jobs",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("market", sa.String(length=32), nullable=False),
+        sa.Column("source", sa.String(length=64), nullable=False),
+        sa.Column("status", sa.String(length=32), nullable=False),
+        sa.Column("started_at", sa.DateTime(), nullable=True),
+        sa.Column("finished_at", sa.DateTime(), nullable=True),
+        sa.Column("total_count", sa.Integer(), nullable=False),
+        sa.Column("inserted_count", sa.Integer(), nullable=False),
+        sa.Column("updated_count", sa.Integer(), nullable=False),
+        sa.Column("failed_count", sa.Integer(), nullable=False),
+        sa.Column("error_message", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(op.f("ix_instrument_import_jobs_id"), "instrument_import_jobs", ["id"])
+    op.create_index(op.f("ix_instrument_import_jobs_status"), "instrument_import_jobs", ["status"])
+
+    op.create_table(
         "portfolio_buckets",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("user_id", sa.Integer(), nullable=False),
@@ -265,6 +284,7 @@ def downgrade() -> None:
     op.drop_table("investment_accounts")
     op.drop_table("portfolio_groups")
     op.drop_table("portfolio_buckets")
+    op.drop_table("instrument_import_jobs")
     op.drop_table("instrument_prices")
     op.drop_table("portfolios")
     op.drop_table("instruments")

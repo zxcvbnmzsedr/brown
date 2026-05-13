@@ -17,12 +17,13 @@ import {
   Typography,
   theme,
 } from 'antd'
-import type { MenuProps, TableColumnsType } from 'antd'
+import type { MenuProps, TableColumnsType, TablePaginationConfig } from 'antd'
 import {
   BankOutlined,
   CloudSyncOutlined,
   DatabaseOutlined,
   DollarOutlined,
+  ImportOutlined,
   LoginOutlined,
   LogoutOutlined,
   PlusOutlined,
@@ -35,6 +36,8 @@ import { api, clearAccessToken, getAccessToken } from './api'
 import type {
   AdminUser,
   Instrument,
+  InstrumentImportJob,
+  InstrumentImportJobStatus,
   InstrumentPayload,
   InstrumentType,
   PriceState,
@@ -84,6 +87,21 @@ const priceStateColors: Record<PriceState, string> = {
   missing: 'red',
 }
 
+const instrumentSyncSourceOptions = [
+  { label: 'A股', value: 'akshare_a_stock' },
+  { label: '基金', value: 'akshare_fund' },
+]
+
+const instrumentSyncSourceLabels = Object.fromEntries(instrumentSyncSourceOptions.map((item) => [item.value, item.label])) as Record<string, string>
+
+const importJobStatusColors: Record<InstrumentImportJobStatus, string> = {
+  pending: 'default',
+  running: 'blue',
+  success: 'green',
+  failed: 'red',
+  partial: 'orange',
+}
+
 type AdminSectionKey = 'instruments' | 'platforms' | 'prices'
 
 const adminSections: Array<{
@@ -117,6 +135,19 @@ const adminSections: Array<{
 ]
 
 const adminMenuItems: MenuProps['items'] = adminSections.map(({ key, label, icon }) => ({ key, label, icon }))
+const adminSectionKeys = new Set<AdminSectionKey>(adminSections.map((section) => section.key))
+
+function sectionFromLocation(): AdminSectionKey {
+  const hashValue = window.location.hash.replace(/^#\/?/, '')
+  return adminSectionKeys.has(hashValue as AdminSectionKey) ? (hashValue as AdminSectionKey) : 'instruments'
+}
+
+function updateSectionLocation(section: AdminSectionKey) {
+  const nextHash = `#/${section}`
+  if (window.location.hash !== nextHash) {
+    window.location.hash = nextHash
+  }
+}
 
 function AuthPanel({ onAuthenticated }: { onAuthenticated: (admin: AdminUser) => void }) {
   const { message } = AntdApp.useApp()
@@ -163,20 +194,33 @@ function InstrumentsPanel() {
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [items, setItems] = useState<Instrument[]>([])
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 })
+  const [jobs, setJobs] = useState<InstrumentImportJob[]>([])
   const [editing, setEditing] = useState<Instrument | null>(null)
   const [open, setOpen] = useState(false)
   const [form] = Form.useForm<InstrumentPayload>()
   const [searchForm] = Form.useForm<{ q?: string; instrument_type?: InstrumentType; market?: string }>()
-  const [syncForm] = Form.useForm<{ query: string; limit: number }>()
+  const [syncForm] = Form.useForm<{ sources: string[] }>()
+  const currentPage = pagination.current
+  const currentPageSize = pagination.pageSize
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (override?: { page?: number; pageSize?: number }) => {
     setLoading(true)
     try {
-      setItems(await api.listInstruments({ ...searchForm.getFieldsValue(), include_inactive: true }))
+      const page = override?.page ?? currentPage
+      const pageSize = override?.pageSize ?? currentPageSize
+      const [nextPage, nextJobs] = await Promise.all([
+        api.listInstruments({ ...searchForm.getFieldsValue(), include_inactive: true, page, page_size: pageSize }),
+        api.listInstrumentImportJobs(),
+      ])
+      setItems(nextPage.items)
+      setPagination({ current: nextPage.page, pageSize: nextPage.page_size, total: nextPage.total })
+      setJobs(nextJobs)
+      setSyncing(nextJobs.some(isActiveImportJob))
     } finally {
       setLoading(false)
     }
-  }, [searchForm])
+  }, [currentPage, currentPageSize, searchForm])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -184,6 +228,23 @@ function InstrumentsPanel() {
     }, 0)
     return () => window.clearTimeout(timer)
   }, [load])
+
+  useEffect(() => {
+    if (!syncing) {
+      return
+    }
+    const timer = window.setInterval(async () => {
+      const nextJobs = await api.listInstrumentImportJobs()
+      setJobs(nextJobs)
+      const active = nextJobs.some(isActiveImportJob)
+      if (!active) {
+        window.clearInterval(timer)
+        setSyncing(false)
+        await load({ page: currentPage, pageSize: currentPageSize })
+      }
+    }, 2000)
+    return () => window.clearInterval(timer)
+  }, [currentPage, currentPageSize, load, syncing])
 
   function openCreate() {
     setEditing(null)
@@ -230,7 +291,7 @@ function InstrumentsPanel() {
       message.success('标的已创建')
     }
     setOpen(false)
-    await load()
+    await load({ page: editing ? currentPage : 1, pageSize: currentPageSize })
   }
 
   const columns: TableColumnsType<Instrument> = [
@@ -259,7 +320,7 @@ function InstrumentsPanel() {
             onClick={async () => {
               await api.toggleInstrument(record.id)
               message.success(record.is_active ? '已停用' : '已启用')
-              await load()
+              await load({ page: currentPage, pageSize: currentPageSize })
             }}
           >
             {record.is_active ? '停用' : '启用'}
@@ -269,6 +330,23 @@ function InstrumentsPanel() {
     },
   ]
 
+  const jobColumns: TableColumnsType<InstrumentImportJob> = [
+    { title: '任务', dataIndex: 'id', width: 80 },
+    { title: '市场', dataIndex: 'market', width: 90 },
+    { title: '来源', dataIndex: 'source', width: 150, render: formatImportJobSource },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      width: 110,
+      render: (value: InstrumentImportJobStatus) => <Tag color={importJobStatusColors[value]}>{value}</Tag>,
+    },
+    { title: '总数', dataIndex: 'total_count', width: 90 },
+    { title: '新增', dataIndex: 'inserted_count', width: 90 },
+    { title: '更新', dataIndex: 'updated_count', width: 90 },
+    { title: '失败', dataIndex: 'failed_count', width: 90 },
+    { title: '错误', dataIndex: 'error_message', render: (value) => value || '-' },
+  ]
+
   return (
     <section className="panel">
       <div className="panelHeader">
@@ -276,11 +354,35 @@ function InstrumentsPanel() {
           <Typography.Title level={3}>标的库</Typography.Title>
           <Typography.Text type="secondary">只维护可交易、可报价标的；现金不进入标的库。</Typography.Text>
         </div>
-        <Button icon={<PlusOutlined />} type="primary" onClick={openCreate}>
-          新增标的
-        </Button>
+        <Space wrap>
+          <Form form={syncForm} layout="inline" initialValues={{ sources: instrumentSyncSourceOptions.map((item) => item.value) }}>
+            <Form.Item name="sources" rules={[{ required: true, message: '请选择同步来源' }]}>
+              <Select mode="multiple" options={instrumentSyncSourceOptions} className="syncSourceSelect" />
+            </Form.Item>
+          </Form>
+          <Button
+            icon={<CloudSyncOutlined />}
+            loading={syncing}
+            onClick={async () => {
+              const values = await syncForm.validateFields()
+              const syncJobs = await api.syncInstruments(values.sources)
+              setJobs(syncJobs)
+              if (syncJobs.length === 0) {
+                message.warning('没有可执行的同步来源')
+                return
+              }
+              setSyncing(true)
+              message.success(`已创建 ${syncJobs.length} 个同步任务`)
+            }}
+          >
+            同步标的池
+          </Button>
+          <Button icon={<PlusOutlined />} type="primary" onClick={openCreate}>
+            新增标的
+          </Button>
+        </Space>
       </div>
-      <Form form={searchForm} layout="inline" className="toolbar" onFinish={() => void load()}>
+      <Form form={searchForm} layout="inline" className="toolbar" onFinish={() => void load({ page: 1 })}>
         <Form.Item name="q">
           <Input prefix={<SearchOutlined />} placeholder="名称/代码" allowClear />
         </Form.Item>
@@ -297,45 +399,44 @@ function InstrumentsPanel() {
           <Button
             onClick={async () => {
               searchForm.resetFields()
-              await load()
+              await load({ page: 1 })
             }}
           >
             重置
           </Button>
         </Form.Item>
       </Form>
-      <Form form={syncForm} layout="inline" className="toolbar" initialValues={{ limit: 20 }}>
-        <Form.Item name="query" rules={[{ required: true, min: 2 }]}>
-          <Input placeholder="输入关键词同步，例如 510300" className="syncInput" />
-        </Form.Item>
-        <Form.Item name="limit">
-          <InputNumber min={1} max={50} />
-        </Form.Item>
-        <Form.Item>
-          <Button
-            icon={<CloudSyncOutlined />}
-            loading={syncing}
-            onClick={async () => {
-              const values = await syncForm.validateFields()
-              setSyncing(true)
-              try {
-                const result = await api.syncInstruments(values.query, values.limit)
-                if (result.errors.length) {
-                  message.warning(result.errors.join('；'))
-                } else {
-                  message.success(`同步完成：新增 ${result.imported}，跳过 ${result.skipped}`)
-                }
-                await load()
-              } finally {
-                setSyncing(false)
-              }
-            }}
-          >
-            同步标的
-          </Button>
-        </Form.Item>
-      </Form>
-      <Table<Instrument> rowKey="id" loading={loading} columns={columns} dataSource={items} pagination={{ pageSize: 12 }} scroll={{ x: 1180 }} />
+      <Table<Instrument>
+        rowKey="id"
+        loading={loading}
+        columns={columns}
+        dataSource={items}
+        pagination={{
+          current: pagination.current,
+          pageSize: pagination.pageSize,
+          total: pagination.total,
+          showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 个标的`,
+        }}
+        onChange={(nextPagination) => {
+          void load({
+            page: nextPagination.current ?? 1,
+            pageSize: nextPagination.pageSize ?? currentPageSize,
+          })
+        }}
+        scroll={{ x: 1180 }}
+      />
+      <div className="jobSection">
+        <Typography.Title level={5}>同步任务</Typography.Title>
+        <Table<InstrumentImportJob>
+          rowKey="id"
+          size="small"
+          columns={jobColumns}
+          dataSource={jobs}
+          pagination={false}
+          scroll={{ x: 900 }}
+        />
+      </div>
       <Modal title={editing ? '编辑标的' : '新增标的'} open={open} onCancel={() => setOpen(false)} onOk={() => void saveInstrument()} destroyOnHidden>
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="名称" rules={[{ required: true }]}>
@@ -363,6 +464,19 @@ function InstrumentsPanel() {
       </Modal>
     </section>
   )
+}
+
+function isActiveImportJob(job: InstrumentImportJob) {
+  return job.status === 'pending' || job.status === 'running'
+}
+
+function formatImportJobSource(source: string) {
+  const [baseSource, trigger] = source.split(':')
+  const label = instrumentSyncSourceLabels[baseSource] ?? baseSource
+  if (!trigger) {
+    return label
+  }
+  return trigger === 'manual' ? `${label} / 手动` : `${label} / ${trigger}`
 }
 
 function PlatformsPanel() {
@@ -461,9 +575,21 @@ function PlatformsPanel() {
           <Typography.Title level={3}>交易平台</Typography.Title>
           <Typography.Text type="secondary">覆盖券商、银行、基金平台和支付钱包，供用户创建投资账户或现金账户。</Typography.Text>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          新增平台
-        </Button>
+        <Space>
+          <Button
+            icon={<ImportOutlined />}
+            onClick={async () => {
+              const result = await api.seedDefaultTradingPlatforms()
+              message.success(`常用平台已导入：新增 ${result.inserted_count}，更新 ${result.updated_count}`)
+              await load()
+            }}
+          >
+            导入常用平台
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+            新增平台
+          </Button>
+        </Space>
       </div>
       <Table<TradingPlatform> rowKey="id" loading={loading} columns={columns} dataSource={items} pagination={false} />
       <Modal title={editing ? '编辑交易平台' : '新增交易平台'} open={open} onCancel={() => setOpen(false)} onOk={() => void savePlatform()} destroyOnHidden>
@@ -494,15 +620,18 @@ function PricesPanel() {
   const [loading, setLoading] = useState(false)
   const [fetching, setFetching] = useState(false)
   const [items, setItems] = useState<PriceStatus[]>([])
+  const [pagination, setPagination] = useState<TablePaginationConfig>({ current: 1, pageSize: 20, total: 0 })
   const [editing, setEditing] = useState<PriceStatus | null>(null)
   const [open, setOpen] = useState(false)
   const [form] = Form.useForm<{ price: number; date?: string }>()
-  const [searchForm] = Form.useForm<{ q?: string; price_state?: PriceState }>()
+  const [searchForm] = Form.useForm<{ q?: string; price_state?: PriceState; is_configured?: boolean }>()
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (page = 1, pageSize = 20) => {
     setLoading(true)
     try {
-      setItems(await api.listPriceStatus(searchForm.getFieldsValue()))
+      const result = await api.listPriceStatus({ ...searchForm.getFieldsValue(), page, page_size: pageSize })
+      setItems(result.items)
+      setPagination({ current: result.page, pageSize: result.page_size, total: result.total, showSizeChanger: true })
     } finally {
       setLoading(false)
     }
@@ -520,6 +649,12 @@ function PricesPanel() {
     { title: '代码', dataIndex: 'instrument_code', width: 110, render: (value) => value || '-' },
     { title: '市场', dataIndex: 'instrument_exchange', width: 90, render: (value) => value || '-' },
     { title: '类型', dataIndex: 'instrument_type', width: 110, render: (value: InstrumentType) => instrumentTypeLabels[value] ?? value },
+    {
+      title: '配置',
+      dataIndex: 'is_configured',
+      width: 110,
+      render: (value: boolean) => <Tag color={value ? 'blue' : 'default'}>{value ? '已配置' : '未配置'}</Tag>,
+    },
     { title: '最新价格', dataIndex: 'latest_price', width: 120, render: (value) => value ?? '-' },
     { title: '价格日期', dataIndex: 'price_date', width: 120, render: (value) => value || '-' },
     {
@@ -565,7 +700,7 @@ function PricesPanel() {
               } else {
                 message.success(`批量抓取完成：更新 ${result.updated}/${result.target_count}`)
               }
-              await load()
+              await load(1, pagination.pageSize)
             } finally {
               setFetching(false)
             }
@@ -574,7 +709,7 @@ function PricesPanel() {
           批量抓取
         </Button>
       </div>
-      <Form form={searchForm} layout="inline" className="toolbar" onFinish={() => void load()}>
+      <Form form={searchForm} layout="inline" className="toolbar" onFinish={() => void load(1, pagination.pageSize)}>
         <Form.Item name="q">
           <Input prefix={<SearchOutlined />} placeholder="名称/代码" allowClear />
         </Form.Item>
@@ -586,6 +721,17 @@ function PricesPanel() {
             options={Object.entries(priceStateLabels).map(([value, label]) => ({ value, label }))}
           />
         </Form.Item>
+        <Form.Item name="is_configured">
+          <Select
+            placeholder="配置状态"
+            allowClear
+            className="filterSelect"
+            options={[
+              { value: true, label: '已配置' },
+              { value: false, label: '未配置' },
+            ]}
+          />
+        </Form.Item>
         <Form.Item>
           <Button htmlType="submit">搜索</Button>
         </Form.Item>
@@ -593,14 +739,24 @@ function PricesPanel() {
           <Button
             onClick={async () => {
               searchForm.resetFields()
-              await load()
+              await load(1, pagination.pageSize)
             }}
           >
             重置
           </Button>
         </Form.Item>
       </Form>
-      <Table<PriceStatus> rowKey="instrument_id" loading={loading} columns={columns} dataSource={items} pagination={{ pageSize: 12 }} scroll={{ x: 960 }} />
+      <Table<PriceStatus>
+        rowKey="instrument_id"
+        loading={loading}
+        columns={columns}
+        dataSource={items}
+        pagination={pagination}
+        onChange={(nextPagination) => {
+          void load(nextPagination.current ?? 1, nextPagination.pageSize ?? 20)
+        }}
+        scroll={{ x: 960 }}
+      />
       <Modal
         title={editing ? `手动价格：${editing.instrument_name}` : '手动价格'}
         open={open}
@@ -629,11 +785,19 @@ function PricesPanel() {
 }
 
 function AdminShell({ admin, onLogout }: { admin: AdminUser; onLogout: () => void }) {
-  const [currentSection, setCurrentSection] = useState<AdminSectionKey>('instruments')
+  const [currentSection, setCurrentSection] = useState<AdminSectionKey>(() => sectionFromLocation())
   const activeSection = useMemo(
     () => adminSections.find((section) => section.key === currentSection) ?? adminSections[0],
     [currentSection],
   )
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setCurrentSection(sectionFromLocation())
+    }
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [])
 
   return (
     <Layout className="shell">
@@ -650,7 +814,11 @@ function AdminShell({ admin, onLogout }: { admin: AdminUser; onLogout: () => voi
           mode="inline"
           selectedKeys={[currentSection]}
           items={adminMenuItems}
-          onClick={({ key }) => setCurrentSection(key as AdminSectionKey)}
+          onClick={({ key }) => {
+            const section = key as AdminSectionKey
+            setCurrentSection(section)
+            updateSectionLocation(section)
+          }}
         />
       </Layout.Sider>
       <Layout>

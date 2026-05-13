@@ -1,35 +1,49 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date
+from datetime import date, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from server.auth import CurrentAdmin, admin_email, authenticate_admin, create_admin_access_token
 from server.db import get_db
-from server.models import Instrument, InstrumentPrice, TradingPlatform
+from server.models import Instrument, InstrumentImportJob, InstrumentPrice, TradingPlatform, UserAsset
 from server.schemas import (
     AdminLoginRequest,
     AdminTokenResponse,
     AdminUserRead,
     InstrumentCreate,
+    InstrumentImportJobRead,
+    InstrumentPage,
     InstrumentPriceManualUpdate,
     InstrumentPriceRead,
     InstrumentPriceStatus,
     InstrumentRead,
     InstrumentSyncRequest,
     InstrumentSyncResult,
+    InstrumentUniverseSyncRequest,
     InstrumentUpdate,
     PriceFetchResult,
+    PriceStatusPage,
     TradingPlatformCreate,
     TradingPlatformRead,
+    TradingPlatformSeedResult,
     TradingPlatformUpdate,
 )
 from server.services.portfolio import latest_price_record_for_instrument
-from server.services.price_fetcher import PriceFetcher, detect_cn_exchange, normalize_code, normalize_exchange, parse_price
+from server.services.price_fetcher import (
+    PriceFetcher,
+    configured_price_target_count,
+    detect_cn_exchange,
+    normalize_code,
+    normalize_exchange,
+    parse_price,
+)
+from server.services import instrument_sync
+from server.services.trading_platforms import seed_default_trading_platforms
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -96,6 +110,13 @@ def create_trading_platform(payload: TradingPlatformCreate, db: DbSession, _admi
     return platform
 
 
+@router.post("/trading-platforms/seed-defaults", response_model=TradingPlatformSeedResult)
+def seed_trading_platforms(db: DbSession, _admin: CurrentAdmin):
+    result = seed_default_trading_platforms(db)
+    db.commit()
+    return result
+
+
 @router.put("/trading-platforms/{platform_id}", response_model=TradingPlatformRead)
 def update_trading_platform(platform_id: int, payload: TradingPlatformUpdate, db: DbSession, _admin: CurrentAdmin):
     platform = get_platform_or_404(db, platform_id)
@@ -115,7 +136,7 @@ def toggle_trading_platform(platform_id: int, db: DbSession, _admin: CurrentAdmi
     return platform
 
 
-@router.get("/instruments", response_model=list[InstrumentRead])
+@router.get("/instruments", response_model=InstrumentPage)
 def list_instruments(
     db: DbSession,
     _admin: CurrentAdmin,
@@ -123,6 +144,8 @@ def list_instruments(
     instrument_type: str | None = None,
     market: str | None = None,
     include_inactive: bool = True,
+    page: int = 1,
+    page_size: int = 20,
 ):
     statement = select(Instrument)
     if not include_inactive:
@@ -134,8 +157,21 @@ def list_instruments(
     if q and q.strip():
         pattern = f"%{q.strip()}%"
         statement = statement.where(or_(Instrument.name.ilike(pattern), Instrument.code.ilike(pattern)))
-    instruments = db.scalars(statement.order_by(Instrument.is_active.desc(), Instrument.id)).all()
-    return [instrument_response(db, instrument) for instrument in instruments]
+    safe_page = max(page, 1)
+    safe_page_size = min(max(page_size, 1), 100)
+    total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+    instruments = db.scalars(
+        statement
+        .order_by(Instrument.is_active.desc(), Instrument.id)
+        .offset((safe_page - 1) * safe_page_size)
+        .limit(safe_page_size)
+    ).all()
+    return InstrumentPage(
+        items=[instrument_response(db, instrument) for instrument in instruments],
+        total=int(total),
+        page=safe_page,
+        page_size=safe_page_size,
+    )
 
 
 @router.post("/instruments", response_model=InstrumentRead, status_code=status.HTTP_201_CREATED)
@@ -166,6 +202,30 @@ def toggle_instrument(instrument_id: int, db: DbSession, _admin: CurrentAdmin):
     db.commit()
     db.refresh(instrument)
     return instrument_response(db, instrument)
+
+
+@router.get("/instruments/import-jobs", response_model=list[InstrumentImportJobRead])
+def list_instrument_import_jobs(db: DbSession, _admin: CurrentAdmin, limit: int = 20):
+    safe_limit = min(max(limit, 1), 100)
+    return db.scalars(
+        select(InstrumentImportJob)
+        .order_by(InstrumentImportJob.id.desc())
+        .limit(safe_limit)
+    ).all()
+
+
+@router.post("/instruments/sync-jobs", response_model=list[InstrumentImportJobRead])
+def create_instrument_sync_jobs(
+    background_tasks: BackgroundTasks,
+    db: DbSession,
+    _admin: CurrentAdmin,
+    payload: InstrumentUniverseSyncRequest | None = None,
+):
+    source_filter = set(payload.sources) if payload and payload.sources else None
+    jobs = instrument_sync.create_instrument_sync_jobs(db, source_filter)
+    db.commit()
+    background_tasks.add_task(instrument_sync.run_instrument_sync_jobs, [job.id for job in jobs])
+    return jobs
 
 
 def _instrument_type_from_record(name: str, code: str | None) -> str:
@@ -270,25 +330,72 @@ async def sync_instruments(payload: InstrumentSyncRequest, db: DbSession, _admin
     return InstrumentSyncResult(imported=imported, skipped=skipped)
 
 
-@router.get("/instrument-prices/status", response_model=list[InstrumentPriceStatus])
-def list_price_status(db: DbSession, _admin: CurrentAdmin, q: str | None = None, price_state: str | None = None):
-    statement = select(Instrument).order_by(Instrument.is_active.desc(), Instrument.id)
+@router.get("/instrument-prices/status", response_model=PriceStatusPage)
+def list_price_status(
+    db: DbSession,
+    _admin: CurrentAdmin,
+    q: str | None = None,
+    price_state: str | None = None,
+    is_configured: bool | None = None,
+    page: int = 1,
+    page_size: int = 20,
+):
+    safe_page = max(page, 1)
+    safe_page_size = min(max(page_size, 1), 100)
+    today = date.today()
+    fresh_since = today - timedelta(days=7)
+    latest_price_dates = (
+        select(InstrumentPrice.instrument_id, func.max(InstrumentPrice.date).label("date"))
+        .group_by(InstrumentPrice.instrument_id)
+        .subquery()
+    )
+    configured_instrument_ids = (
+        select(UserAsset.instrument_id)
+        .where(UserAsset.is_active == True)
+        .distinct()
+        .subquery()
+    )
+    statement = (
+        select(Instrument, InstrumentPrice, configured_instrument_ids.c.instrument_id.is_not(None).label("is_configured"))
+        .outerjoin(configured_instrument_ids, configured_instrument_ids.c.instrument_id == Instrument.id)
+        .outerjoin(latest_price_dates, latest_price_dates.c.instrument_id == Instrument.id)
+        .outerjoin(
+            InstrumentPrice,
+            (InstrumentPrice.instrument_id == Instrument.id)
+            & (InstrumentPrice.date == latest_price_dates.c.date),
+        )
+    )
     if q and q.strip():
         pattern = f"%{q.strip()}%"
         statement = statement.where(or_(Instrument.name.ilike(pattern), Instrument.code.ilike(pattern)))
+    if price_state == "missing":
+        statement = statement.where(InstrumentPrice.id.is_(None))
+    elif price_state == "stale":
+        statement = statement.where(InstrumentPrice.date < fresh_since)
+    elif price_state == "fresh":
+        statement = statement.where(InstrumentPrice.date >= fresh_since)
+    if is_configured is True:
+        statement = statement.where(configured_instrument_ids.c.instrument_id.is_not(None))
+    elif is_configured is False:
+        statement = statement.where(configured_instrument_ids.c.instrument_id.is_(None))
+
+    total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+    records = db.execute(
+        statement
+        .order_by(Instrument.is_active.desc(), Instrument.id)
+        .offset((safe_page - 1) * safe_page_size)
+        .limit(safe_page_size)
+    ).all()
 
     rows: list[InstrumentPriceStatus] = []
-    for instrument in db.scalars(statement).all():
-        price_record = latest_price_record_for_instrument(db, instrument.id)
-        age_days = None if price_record is None else max((date.today() - price_record.date).days, 0)
+    for instrument, price_record, configured in records:
+        age_days = None if price_record is None else max((today - price_record.date).days, 0)
         if price_record is None:
             state = "missing"
         elif age_days is not None and age_days > 7:
             state = "stale"
         else:
             state = "fresh"
-        if price_state and state != price_state:
-            continue
         rows.append(
             InstrumentPriceStatus(
                 instrument_id=instrument.id,
@@ -296,6 +403,7 @@ def list_price_status(db: DbSession, _admin: CurrentAdmin, q: str | None = None,
                 instrument_code=instrument.code,
                 instrument_exchange=instrument.exchange,
                 instrument_type=instrument.type,
+                is_configured=bool(configured),
                 latest_price=price_record.price if price_record else None,
                 price_date=price_record.date if price_record else None,
                 last_fetched_at=instrument.last_fetched_at,
@@ -303,7 +411,7 @@ def list_price_status(db: DbSession, _admin: CurrentAdmin, q: str | None = None,
                 price_state=state,
             )
         )
-    return rows
+    return PriceStatusPage(items=rows, total=int(total), page=safe_page, page_size=safe_page_size)
 
 
 @router.put("/instrument-prices/manual", response_model=InstrumentPriceRead)
@@ -337,8 +445,7 @@ async def fetch_prices(db: DbSession, _admin: CurrentAdmin):
     try:
         prices = await fetcher.fetch_all_prices(db)
         updated = fetcher.save_prices(db, prices)
-        total_active = db.scalar(select(func.count()).select_from(Instrument).where(Instrument.is_active == True)) or 0
-        return PriceFetchResult(updated=updated, target_count=int(total_active), errors=[])
+        return PriceFetchResult(updated=updated, target_count=configured_price_target_count(db), errors=[])
     except Exception as exc:
         return PriceFetchResult(updated=0, target_count=0, errors=[str(exc)])
     finally:

@@ -158,6 +158,18 @@ body {
   width: 260px;
 }
 
+.syncSourceSelect {
+  width: 260px;
+}
+
+.jobSection {
+  margin-top: 20px;
+}
+
+.jobSection .ant-typography {
+  margin-top: 0;
+}
+
 .fullWidth {
   width: 100%;
 }

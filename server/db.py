@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Generator
 
 from dotenv import load_dotenv
-from sqlalchemy import event, select
+from sqlalchemy import event, inspect, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy import create_engine
@@ -56,6 +56,24 @@ def init_db() -> None:
     from server import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    cleanup_hard_cut_schema()
+
+
+def cleanup_hard_cut_schema() -> None:
+    if IS_SQLITE:
+        return
+
+    # Hard-cut web schema: global catalog tables are no longer user-scoped.
+    legacy_global_user_columns = ("trading_platforms", "instruments", "instrument_prices")
+    with engine.begin() as conn:
+        inspector = inspect(conn)
+        existing_tables = set(inspector.get_table_names())
+        for table_name in legacy_global_user_columns:
+            if table_name not in existing_tables:
+                continue
+            columns = {column["name"] for column in inspector.get_columns(table_name)}
+            if "user_id" in columns:
+                conn.execute(text(f'ALTER TABLE "{table_name}" DROP COLUMN IF EXISTS user_id CASCADE'))
 
 
 def seed_default_portfolio(user_id: int, db: Session | None = None) -> None:

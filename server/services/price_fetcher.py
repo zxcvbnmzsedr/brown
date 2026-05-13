@@ -9,10 +9,10 @@ from difflib import SequenceMatcher
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from server.models import Instrument, InstrumentPrice
+from server.models import Instrument, InstrumentPrice, UserAsset
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +91,32 @@ def _name_score(query: str, candidate: str) -> float:
     return SequenceMatcher(None, normalized_query, normalized_candidate).ratio()
 
 
+def configured_price_targets_statement():
+    configured_ids = (
+        select(UserAsset.instrument_id)
+        .where(UserAsset.is_active == True)
+        .distinct()
+        .subquery()
+    )
+    return (
+        select(Instrument)
+        .join(configured_ids, configured_ids.c.instrument_id == Instrument.id)
+        .where(Instrument.is_active == True)
+        .order_by(Instrument.id)
+    )
+
+
+def configured_price_target_count(db: Session) -> int:
+    return int(
+        db.scalar(
+            select(func.count(func.distinct(UserAsset.instrument_id)))
+            .join(Instrument, Instrument.id == UserAsset.instrument_id)
+            .where(UserAsset.is_active == True, Instrument.is_active == True)
+        )
+        or 0
+    )
+
+
 class PriceFetcher:
     def __init__(self) -> None:
         self._client: httpx.AsyncClient | None = None
@@ -150,7 +176,7 @@ class PriceFetcher:
             name = str(record.get("f14") or "").strip()
             return {"code": code, "name": name, "price": price} if code and price is not None else None
         except Exception as exc:
-            logger.error("Failed to fetch EastMoney quote %s: %s", secid, exc)
+            logger.warning("EastMoney quote unavailable for %s: %s", secid, exc)
             return None
 
     async def search_eastmoney_quotes(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
@@ -164,7 +190,7 @@ class PriceFetcher:
             resp.raise_for_status()
             records = resp.json().get("QuotationCodeTable", {}).get("Data") or []
         except Exception as exc:
-            logger.error("Failed to search EastMoney quote %s: %s", query, exc)
+            logger.warning("EastMoney quote search unavailable for %s: %s", query, exc)
             return []
 
         results: list[dict[str, Any]] = []
@@ -221,34 +247,46 @@ class PriceFetcher:
     async def fetch_instrument_price(self, instrument: Instrument) -> float | None:
         code = normalize_code(instrument.code)
         exchange = normalize_exchange(instrument.exchange) or detect_cn_exchange(code)
+        attempted_known_source = False
 
         if _is_cn_market_code(code) and exchange in {"SH", "SZ"}:
+            attempted_known_source = True
             market_price = await self.fetch_cn_stock(code, exchange)
             if market_price is not None:
                 return market_price
+            if instrument.type == "stock":
+                logger.info(
+                    "No price fetched for CN stock %s(%s.%s) from EastMoney",
+                    instrument.name,
+                    exchange,
+                    code,
+                )
+                return None
 
         if code and instrument.type in {"fund", "etf"}:
+            attempted_known_source = True
             fund_price = await self.fetch_cn_fund(code)
             if fund_price is not None:
                 return fund_price
 
         if instrument.type in {"fund", "etf", "gold", "bond"}:
+            attempted_known_source = True
             etf_price = await self.fetch_cn_etf_by_name(instrument.name)
             if etf_price is not None:
                 return etf_price
 
         if instrument.type == "stock":
+            attempted_known_source = True
             stock_price = await self.fetch_cn_stock_by_name(instrument.name)
             if stock_price is not None:
                 return stock_price
 
-        logger.warning("Unknown instrument quote source for %s: type=%s exchange=%s", instrument.name, instrument.type, instrument.exchange)
+        if not attempted_known_source:
+            logger.warning("Unknown instrument quote source for %s: type=%s exchange=%s", instrument.name, instrument.type, instrument.exchange)
         return None
 
     async def fetch_all_prices(self, db: Session) -> dict[int, float]:
-        instruments = db.scalars(
-            select(Instrument).where(Instrument.is_active == True).order_by(Instrument.id)
-        ).all()
+        instruments = db.scalars(configured_price_targets_statement()).all()
 
         results: dict[int, float] = {}
         for instrument in instruments:

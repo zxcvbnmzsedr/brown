@@ -81,6 +81,23 @@ class InstrumentPrice(Base):
     instrument: Mapped[Instrument] = relationship(back_populates="prices")
 
 
+class InstrumentImportJob(Base):
+    __tablename__ = "instrument_import_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    market: Mapped[str] = mapped_column(String(32), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    inserted_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+
 class Portfolio(Base):
     __tablename__ = "portfolios"
 

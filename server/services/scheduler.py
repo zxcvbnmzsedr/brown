@@ -13,13 +13,13 @@ async def _fetch_all_prices_job() -> None:
     from server.db import SessionLocal
     from server.services.price_fetcher import PriceFetcher
 
-    logger.info("Scheduled price fetch started")
+    logger.info("Scheduled price fetch started for configured instruments")
     fetcher = PriceFetcher()
     try:
         with SessionLocal() as db:
             prices = await fetcher.fetch_all_prices(db)
             count = fetcher.save_prices(db, prices)
-            logger.info("Scheduled price fetch completed: %d instruments updated", count)
+            logger.info("Scheduled price fetch completed: %d configured instruments updated", count)
     except Exception as e:
         logger.error("Scheduled price fetch failed: %s", e)
     finally:

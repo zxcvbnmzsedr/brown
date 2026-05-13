@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from datetime import date
 from pathlib import Path
+import asyncio
 
 TEST_DB = Path(__file__).with_name("brown-test.sqlite3")
 os.environ["BROWN_SKIP_DOTENV"] = "1"
@@ -14,10 +15,14 @@ os.environ["ADMIN_EMAIL"] = "ops@example.com"
 os.environ["ADMIN_PASSWORD"] = "ops-secret"
 
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 
 from server.app import app  # noqa: E402
-from server.db import engine  # noqa: E402
-from server.models import Instrument, InstrumentPrice, TradingPlatform  # noqa: E402
+from server.db import SessionLocal, engine  # noqa: E402
+from server.models import Instrument, InstrumentImportJob, InstrumentPrice, TradingPlatform  # noqa: E402
+from server.services import instrument_sync  # noqa: E402
+from server.services.instrument_sync import InstrumentSyncPayload  # noqa: E402
+from server.services.price_fetcher import PriceFetcher, configured_price_target_count  # noqa: E402
 
 
 TODAY = date.today().isoformat()
@@ -137,7 +142,13 @@ def test_admin_catalog_and_manual_prices_are_global():
 
         instruments = client.get("/admin/instruments?q=510300", headers=headers)
         assert instruments.status_code == 200
-        assert instruments.json()[0]["id"] == instrument_id
+        assert instruments.json()["items"][0]["id"] == instrument_id
+        assert instruments.json()["total"] == 1
+
+        paged = client.get("/admin/instruments?page=1&page_size=1", headers=headers)
+        assert paged.status_code == 200
+        assert len(paged.json()["items"]) == 1
+        assert paged.json()["page_size"] == 1
 
         price = client.put(
             "/admin/instrument-prices/manual",
@@ -149,8 +160,221 @@ def test_admin_catalog_and_manual_prices_are_global():
 
         status = client.get("/admin/instrument-prices/status", headers=headers)
         assert status.status_code == 200
-        assert status.json()[0]["latest_price"] == 4.2
-        assert status.json()[0]["price_state"] == "fresh"
+        assert status.json()["items"][0]["latest_price"] == 4.2
+        assert status.json()["items"][0]["price_state"] == "fresh"
+        assert status.json()["items"][0]["is_configured"] is False
+        assert status.json()["total"] == 1
+        assert status.json()["page_size"] == 20
+
+        paged_status = client.get("/admin/instrument-prices/status?page=1&page_size=1", headers=headers)
+        assert paged_status.status_code == 200
+        assert len(paged_status.json()["items"]) == 1
+        assert paged_status.json()["total"] == 1
+
+    cleanup_test_db()
+
+
+def test_admin_can_seed_common_trading_platforms():
+    reset_test_db()
+
+    with TestClient(app) as client:
+        headers = admin_headers(client)
+        seeded = client.post("/admin/trading-platforms/seed-defaults", headers=headers)
+        assert seeded.status_code == 200
+        assert seeded.json()["inserted_count"] == 15
+        assert seeded.json()["updated_count"] == 0
+
+        reseeded = client.post("/admin/trading-platforms/seed-defaults", headers=headers)
+        assert reseeded.status_code == 200
+        assert reseeded.json()["inserted_count"] == 0
+        assert reseeded.json()["updated_count"] == 15
+
+        platforms = client.get("/admin/trading-platforms", headers=headers)
+        assert platforms.status_code == 200
+        names = [item["name"] for item in platforms.json()]
+        assert names[:4] == ["华泰证券", "中信证券", "招商证券", "东方财富证券"]
+        assert "天天基金" in names
+        assert "招商银行" in names
+        assert "支付宝余额宝" in names
+
+    cleanup_test_db()
+
+
+def test_instrument_sync_job_upserts_provider_results():
+    reset_test_db()
+
+    class FakeProvider:
+        source = "akshare_a_stock"
+        market = "CN"
+
+        def fetch(self):
+            return [
+                InstrumentSyncPayload(name="浦发银行", type="stock", code="600000", exchange="SH", source=self.source),
+                InstrumentSyncPayload(name="平安银行", type="stock", code="000001", exchange="SZ", source=self.source),
+            ]
+
+    with TestClient(app):
+        with SessionLocal() as db:
+            jobs = instrument_sync.create_instrument_sync_jobs(db, {"akshare_a_stock"}, providers=[FakeProvider()])
+            db.commit()
+            assert len(jobs) == 1
+            assert jobs[0].status == "pending"
+            assert jobs[0].source == "akshare_a_stock:manual"
+
+            job = instrument_sync.run_instrument_sync_job(db, jobs[0].id, providers=[FakeProvider()])
+            assert job.status == "success"
+            assert job.total_count == 2
+            assert job.inserted_count == 2
+            assert job.updated_count == 0
+
+            rerun = instrument_sync.run_instrument_sync_job(db, jobs[0].id, providers=[FakeProvider()])
+            assert rerun.status == "success"
+            assert rerun.inserted_count == 0
+            assert rerun.updated_count == 2
+
+            instruments = db.scalars(select(Instrument).order_by(Instrument.code)).all()
+            assert [(item.code, item.exchange, item.source) for item in instruments] == [
+                ("000001", "SZ", "akshare_a_stock"),
+                ("600000", "SH", "akshare_a_stock"),
+            ]
+            assert db.scalar(select(InstrumentImportJob).where(InstrumentImportJob.id == jobs[0].id)) is not None
+
+    cleanup_test_db()
+
+
+def test_cn_stock_price_fetch_does_not_fallback_to_name_after_code_source_failure():
+    class FakePriceFetcher(PriceFetcher):
+        def __init__(self) -> None:
+            super().__init__()
+            self.name_fallback_called = False
+
+        async def fetch_cn_stock(self, code: str, exchange: str) -> float | None:
+            assert code == "002455"
+            assert exchange == "SZ"
+            return None
+
+        async def fetch_cn_stock_by_name(self, name: str) -> float | None:
+            self.name_fallback_called = True
+            return 9.99
+
+    fetcher = FakePriceFetcher()
+    instrument = Instrument(name="松芝股份", type="stock", code="002455", exchange="SZ", currency="CNY", source="akshare")
+    price = asyncio.run(fetcher.fetch_instrument_price(instrument))
+    assert price is None
+    assert fetcher.name_fallback_called is False
+
+
+def test_price_fetch_only_targets_configured_user_assets():
+    reset_test_db()
+
+    class FakePriceFetcher(PriceFetcher):
+        def __init__(self) -> None:
+            super().__init__()
+            self.fetched_codes: list[str | None] = []
+
+        async def fetch_instrument_price(self, instrument: Instrument) -> float | None:
+            self.fetched_codes.append(instrument.code)
+            return 8.8
+
+    with TestClient(app) as client:
+        admin = admin_headers(client)
+        _broker_id, _bank_id, configured_instrument_id = seed_admin_catalog(client, admin)
+        unconfigured = client.post(
+            "/admin/instruments",
+            headers=admin,
+            json={
+                "name": "黄金 ETF",
+                "type": "gold",
+                "code": "518880",
+                "exchange": "SH",
+                "currency": "CNY",
+                "source": "manual",
+                "is_active": True,
+            },
+        )
+        assert unconfigured.status_code == 201
+
+        headers = user_headers(client)
+        portfolios = client.get("/portfolios", headers=headers)
+        assert portfolios.status_code == 200
+        portfolio_id = portfolios.json()[0]["id"]
+
+        configured = client.post(
+            "/user-assets",
+            headers=headers,
+            json={
+                "portfolio_id": portfolio_id,
+                "instrument_id": configured_instrument_id,
+                "portfolio_group_id": None,
+                "account_id": None,
+                "display_name": None,
+                "target_weight": 0.25,
+                "include_in_rebalance": True,
+                "is_active": True,
+            },
+        )
+        assert configured.status_code == 201
+
+        with SessionLocal() as db:
+            fetcher = FakePriceFetcher()
+            prices = asyncio.run(fetcher.fetch_all_prices(db))
+            assert configured_price_target_count(db) == 1
+            assert fetcher.fetched_codes == ["510300"]
+            assert prices == {configured_instrument_id: 8.8}
+
+    cleanup_test_db()
+
+
+def test_price_status_can_filter_configured_instruments():
+    reset_test_db()
+
+    with TestClient(app) as client:
+        admin = admin_headers(client)
+        _broker_id, _bank_id, configured_instrument_id = seed_admin_catalog(client, admin)
+        unconfigured = client.post(
+            "/admin/instruments",
+            headers=admin,
+            json={
+                "name": "黄金 ETF",
+                "type": "gold",
+                "code": "518880",
+                "exchange": "SH",
+                "currency": "CNY",
+                "source": "manual",
+                "is_active": True,
+            },
+        )
+        assert unconfigured.status_code == 201
+
+        headers = user_headers(client)
+        portfolio_id = client.get("/portfolios", headers=headers).json()[0]["id"]
+        configured = client.post(
+            "/user-assets",
+            headers=headers,
+            json={
+                "portfolio_id": portfolio_id,
+                "instrument_id": configured_instrument_id,
+                "portfolio_group_id": None,
+                "account_id": None,
+                "display_name": None,
+                "target_weight": 0.25,
+                "include_in_rebalance": True,
+                "is_active": True,
+            },
+        )
+        assert configured.status_code == 201
+
+        configured_status = client.get("/admin/instrument-prices/status?is_configured=true", headers=admin)
+        assert configured_status.status_code == 200
+        assert configured_status.json()["total"] == 1
+        assert configured_status.json()["items"][0]["instrument_id"] == configured_instrument_id
+        assert configured_status.json()["items"][0]["is_configured"] is True
+
+        unconfigured_status = client.get("/admin/instrument-prices/status?is_configured=false", headers=admin)
+        assert unconfigured_status.status_code == 200
+        assert unconfigured_status.json()["total"] == 1
+        assert unconfigured_status.json()["items"][0]["instrument_id"] == unconfigured.json()["id"]
+        assert unconfigured_status.json()["items"][0]["is_configured"] is False
 
     cleanup_test_db()
 

@@ -2,12 +2,14 @@ import type {
   AdminLoginResponse,
   AdminUser,
   Instrument,
+  InstrumentImportJob,
+  InstrumentPage,
   InstrumentPayload,
-  InstrumentSyncResult,
   PriceFetchResult,
-  PriceStatus,
+  PriceStatusPage,
   TradingPlatform,
   TradingPlatformPayload,
+  TradingPlatformSeedResult,
 } from './types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8765'
@@ -75,26 +77,30 @@ export const api = {
   },
   getMe: () => request<AdminUser>('/admin/auth/me'),
 
-  listInstruments: (params: { q?: string; instrument_type?: string; market?: string; include_inactive?: boolean } = {}) =>
-    request<Instrument[]>(`/admin/instruments${toQuery(params)}`),
+  listInstruments: (
+    params: { q?: string; instrument_type?: string; market?: string; include_inactive?: boolean; page?: number; page_size?: number } = {},
+  ) => request<InstrumentPage>(`/admin/instruments${toQuery(params)}`),
   createInstrument: (payload: InstrumentPayload) =>
     request<Instrument>('/admin/instruments', { method: 'POST', body: JSON.stringify(payload) }),
   updateInstrument: (id: number, payload: InstrumentPayload) =>
     request<Instrument>(`/admin/instruments/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   toggleInstrument: (id: number) => request<Instrument>(`/admin/instruments/${id}/toggle`, { method: 'POST' }),
-  syncInstruments: (query: string, limit = 20) =>
-    request<InstrumentSyncResult>('/admin/instruments/sync', { method: 'POST', body: JSON.stringify({ query, limit }) }),
+  syncInstruments: (sources?: string[]) =>
+    request<InstrumentImportJob[]>('/admin/instruments/sync-jobs', { method: 'POST', body: JSON.stringify({ sources }) }),
+  listInstrumentImportJobs: () => request<InstrumentImportJob[]>('/admin/instruments/import-jobs'),
 
   listTradingPlatforms: () => request<TradingPlatform[]>('/admin/trading-platforms'),
   createTradingPlatform: (payload: TradingPlatformPayload) =>
     request<TradingPlatform>('/admin/trading-platforms', { method: 'POST', body: JSON.stringify(payload) }),
+  seedDefaultTradingPlatforms: () =>
+    request<TradingPlatformSeedResult>('/admin/trading-platforms/seed-defaults', { method: 'POST', body: JSON.stringify({}) }),
   updateTradingPlatform: (id: number, payload: TradingPlatformPayload) =>
     request<TradingPlatform>(`/admin/trading-platforms/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   toggleTradingPlatform: (id: number) =>
     request<TradingPlatform>(`/admin/trading-platforms/${id}/toggle`, { method: 'POST' }),
 
-  listPriceStatus: (params: { q?: string; price_state?: string } = {}) =>
-    request<PriceStatus[]>(`/admin/instrument-prices/status${toQuery(params)}`),
+  listPriceStatus: (params: { q?: string; price_state?: string; is_configured?: boolean; page?: number; page_size?: number } = {}) =>
+    request<PriceStatusPage>(`/admin/instrument-prices/status${toQuery(params)}`),
   updatePrice: (instrumentId: number, price: number, date?: string) =>
     request('/admin/instrument-prices/manual', { method: 'PUT', body: JSON.stringify({ instrument_id: instrumentId, price, date }) }),
   fetchPrices: () => request<PriceFetchResult>('/admin/instrument-prices/fetch', { method: 'POST' }),

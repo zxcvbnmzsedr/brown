@@ -76,6 +76,12 @@ class TradingPlatformRead(TradingPlatformBase):
     created_at: datetime
 
 
+class TradingPlatformSeedResult(BaseModel):
+    total_count: int
+    inserted_count: int
+    updated_count: int
+
+
 class InstrumentBase(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     type: InstrumentType
@@ -104,6 +110,13 @@ class InstrumentRead(InstrumentBase):
     price_date: Date | None = None
 
 
+class InstrumentPage(BaseModel):
+    items: list[InstrumentRead]
+    total: int
+    page: int
+    page_size: int
+
+
 class InstrumentSearchResult(BaseModel):
     id: str
     source: Literal["local", "akshare"]
@@ -124,6 +137,27 @@ class InstrumentSyncResult(BaseModel):
     imported: int
     skipped: int
     errors: list[str] = Field(default_factory=list)
+
+
+class InstrumentUniverseSyncRequest(BaseModel):
+    sources: list[str] | None = None
+
+
+class InstrumentImportJobRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    market: str
+    source: str
+    status: str
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    total_count: int
+    inserted_count: int
+    updated_count: int
+    failed_count: int
+    error_message: str | None = None
+    created_at: datetime
 
 
 class InstrumentPriceRead(BaseModel):
@@ -149,11 +183,19 @@ class InstrumentPriceStatus(BaseModel):
     instrument_code: str | None = None
     instrument_exchange: str | None = None
     instrument_type: str
+    is_configured: bool = False
     latest_price: float | None = None
     price_date: Date | None = None
     last_fetched_at: datetime | None = None
     price_age_days: int | None = None
     price_state: PriceState
+
+
+class PriceStatusPage(BaseModel):
+    items: list[InstrumentPriceStatus]
+    total: int
+    page: int
+    page_size: int
 
 
 class PriceFetchResult(BaseModel):
