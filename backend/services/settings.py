@@ -9,24 +9,24 @@ from backend.models import Setting
 from backend.schemas import RebalanceConfig
 
 
-def get_setting(db: Session, key: str, default: str | None = None) -> str | None:
-    setting = db.scalars(select(Setting).where(Setting.key == key).limit(1)).first()
+def get_setting(db: Session, user_id: int, key: str, default: str | None = None) -> str | None:
+    setting = db.scalars(select(Setting).where(Setting.user_id == user_id, Setting.key == key).limit(1)).first()
     if setting:
         return setting.value
     return default
 
 
-def set_setting(db: Session, key: str, value: str) -> None:
-    existing = db.scalars(select(Setting).where(Setting.key == key).limit(1)).first()
+def set_setting(db: Session, user_id: int, key: str, value: str) -> None:
+    existing = db.scalars(select(Setting).where(Setting.user_id == user_id, Setting.key == key).limit(1)).first()
     if existing:
         existing.value = value
     else:
-        db.add(Setting(key=key, value=value))
+        db.add(Setting(user_id=user_id, key=key, value=value))
     db.commit()
 
 
-def get_rebalance_config(db: Session) -> RebalanceConfig:
-    raw = get_setting(db, "rebalance_config")
+def get_rebalance_config(db: Session, user_id: int) -> RebalanceConfig:
+    raw = get_setting(db, user_id, "rebalance_config")
     if raw:
         try:
             data = json.loads(raw)
@@ -36,5 +36,5 @@ def get_rebalance_config(db: Session) -> RebalanceConfig:
     return RebalanceConfig()
 
 
-def save_rebalance_config(db: Session, config: RebalanceConfig) -> None:
-    set_setting(db, "rebalance_config", config.model_dump_json())
+def save_rebalance_config(db: Session, user_id: int, config: RebalanceConfig) -> None:
+    set_setting(db, user_id, "rebalance_config", config.model_dump_json())

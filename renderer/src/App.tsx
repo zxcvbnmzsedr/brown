@@ -1,5 +1,6 @@
-import { BarChart3, History, Repeat2, ReceiptText, TrendingUp, WalletCards } from 'lucide-react'
+import { BarChart3, History, LogOut, Repeat2, ReceiptText, TrendingUp, WalletCards } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { useAuth } from './auth/useAuth'
 import './App.css'
 
 const NAV_ITEMS = [
@@ -12,6 +13,8 @@ const NAV_ITEMS = [
 ]
 
 function App() {
+  const { user, logout } = useAuth()
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -38,6 +41,12 @@ function App() {
             )
           })}
         </nav>
+        <div className="sidebar-account">
+          <span>{user?.name || user?.email}</span>
+          <button className="icon-button" type="button" onClick={logout} aria-label="退出登录">
+            <LogOut size={16} />
+          </button>
+        </div>
       </aside>
 
       <main className="content">

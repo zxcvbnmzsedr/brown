@@ -6,18 +6,23 @@ from datetime import date
 
 TEST_DB = Path(__file__).with_name("brown-test.sqlite3")
 os.environ["BROWN_DB_PATH"] = str(TEST_DB)
+os.environ["JWT_SECRET"] = "test-secret"
 
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 from backend.app import app  # noqa: E402
 from backend.db import engine  # noqa: E402
-from backend.models import PriceCache  # noqa: E402
+from backend.models import PriceCache, User  # noqa: E402
+from backend.auth import hash_password  # noqa: E402
+from backend.db import SessionLocal, seed_permanent_portfolio  # noqa: E402
 from backend.routers import assets as assets_router  # noqa: E402
 from backend.services.price_fetcher import PriceFetcher  # noqa: E402
 
 
 TODAY = date.today().isoformat()
+TEST_EMAIL = "test@example.com"
+TEST_PASSWORD = "secret"
 
 
 def reset_test_db() -> None:
@@ -28,6 +33,45 @@ def reset_test_db() -> None:
 def cleanup_test_db() -> None:
     engine.dispose()
     TEST_DB.unlink(missing_ok=True)
+
+
+def create_test_user() -> None:
+    with SessionLocal() as db:
+        user = User(
+            email=TEST_EMAIL,
+            name="Test",
+            password_hash=hash_password(TEST_PASSWORD),
+            is_active=True,
+        )
+        db.add(user)
+        db.flush()
+        seed_permanent_portfolio(user.id, db=db)
+        db.commit()
+
+
+def create_user(email: str, password: str) -> None:
+    with SessionLocal() as db:
+        user = User(
+            email=email,
+            name=email.split("@", 1)[0],
+            password_hash=hash_password(password),
+            is_active=True,
+        )
+        db.add(user)
+        db.flush()
+        seed_permanent_portfolio(user.id, db=db)
+        db.commit()
+
+
+def login_headers(client: TestClient, email: str, password: str) -> dict[str, str]:
+    response = client.post("/auth/login", json={"email": email, "password": password})
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+def auth_headers(client: TestClient) -> dict[str, str]:
+    create_test_user()
+    return login_headers(client, TEST_EMAIL, TEST_PASSWORD)
 
 
 def asset_payload(
@@ -56,15 +100,15 @@ def test_mvp_portfolio_flow():
     reset_test_db()
 
     with TestClient(app) as client:
-        structure = client.get("/portfolio/structure")
+        headers = auth_headers(client)
+        structure = client.get("/portfolio/structure", headers=headers)
         assert structure.status_code == 200
         buckets = {bucket["name"]: bucket for bucket in structure.json()}
         assert set(buckets) == {"股票", "黄金", "债券", "现金"}
         cash_group_id = buckets["现金"]["groups"][0]["id"]
         gold_group_id = buckets["黄金"]["groups"][0]["id"]
 
-        cash = client.post(
-            "/assets",
+        cash = client.post("/assets", headers=headers,
             json={
                 "group_id": cash_group_id,
                 "name": "现金",
@@ -79,8 +123,7 @@ def test_mvp_portfolio_flow():
         )
         assert cash.status_code == 201
 
-        gold = client.post(
-            "/assets",
+        gold = client.post("/assets", headers=headers,
             json={
                 "group_id": gold_group_id,
                 "name": "黄金 ETF",
@@ -98,11 +141,10 @@ def test_mvp_portfolio_flow():
         cash_id = cash.json()["id"]
         gold_id = gold.json()["id"]
 
-        price = client.put(f"/prices/{gold_id}", json={"price": 10, "date": TODAY})
+        price = client.put(f"/prices/{gold_id}", headers=headers, json={"price": 10, "date": TODAY})
         assert price.status_code == 200
 
-        assert client.post(
-            "/transactions",
+        assert client.post("/transactions", headers=headers,
             json={
                 "date": TODAY,
                 "asset_id": cash_id,
@@ -113,8 +155,7 @@ def test_mvp_portfolio_flow():
                 "note": "init",
             },
         ).status_code == 201
-        assert client.post(
-            "/transactions",
+        assert client.post("/transactions", headers=headers,
             json={
                 "date": TODAY,
                 "asset_id": gold_id,
@@ -126,7 +167,7 @@ def test_mvp_portfolio_flow():
             },
         ).status_code == 201
 
-        snapshot = client.get("/portfolio/snapshot")
+        snapshot = client.get("/portfolio/snapshot", headers=headers)
         assert snapshot.status_code == 200
         body = snapshot.json()
         assert body["total_value"] == 1500
@@ -139,25 +180,24 @@ def test_mvp_portfolio_flow():
         assert gold_bucket["upper_bound"] == 0.35
         assert gold_bucket["monitor_state"] == "watch"
 
-        rebalance = client.get("/rebalance/suggestion")
+        rebalance = client.get("/rebalance/suggestion", headers=headers)
         assert rebalance.status_code == 200
         assert rebalance.json()["triggered"] is True
         assert rebalance.json()["suggestions"][0]["scope"] == "bucket"
 
-        plan = client.get("/rebalance/plan")
+        plan = client.get("/rebalance/plan", headers=headers)
         assert plan.status_code == 200
         assert plan.json()["status"] == "rebalance"
         assert plan.json()["triggered"] is True
         assert plan.json()["trigger_reasons"]
         assert len(plan.json()["trade_list"]) > 0
 
-        recorded = client.post("/history/rebalance/from-plan")
+        recorded = client.post("/history/rebalance/from-plan", headers=headers)
         assert recorded.status_code == 201
         assert recorded.json()["config_mode"] == "classic_35_15"
         assert recorded.json()["trade_data"] != "[]"
 
-        oversell = client.post(
-            "/transactions",
+        oversell = client.post("/transactions", headers=headers,
             json={
                 "date": TODAY,
                 "asset_id": gold_id,
@@ -177,13 +217,13 @@ def test_opening_position_participates_in_snapshot_and_sell_validation():
     reset_test_db()
 
     with TestClient(app) as client:
-        structure = client.get("/portfolio/structure")
+        headers = auth_headers(client)
+        structure = client.get("/portfolio/structure", headers=headers)
         assert structure.status_code == 200
         buckets = {bucket["name"]: bucket for bucket in structure.json()}
         gold_group_id = buckets["黄金"]["groups"][0]["id"]
 
-        gold = client.post(
-            "/assets",
+        gold = client.post("/assets", headers=headers,
             json=asset_payload(
                 group_id=gold_group_id,
                 name="黄金 ETF",
@@ -194,8 +234,7 @@ def test_opening_position_participates_in_snapshot_and_sell_validation():
         assert gold.status_code == 201
         gold_id = gold.json()["id"]
 
-        opening = client.post(
-            "/opening-positions",
+        opening = client.post("/opening-positions", headers=headers,
             json={
                 "asset_id": gold_id,
                 "date": TODAY,
@@ -208,7 +247,7 @@ def test_opening_position_participates_in_snapshot_and_sell_validation():
         assert opening.status_code == 201
         assert opening.json()["asset_name"] == "黄金 ETF"
 
-        snapshot = client.get("/portfolio/snapshot")
+        snapshot = client.get("/portfolio/snapshot", headers=headers)
         assert snapshot.status_code == 200
         body = snapshot.json()
         assert body["total_value"] == 1000
@@ -219,8 +258,7 @@ def test_opening_position_participates_in_snapshot_and_sell_validation():
         assert item["average_cost"] == 8
         assert item["current_value"] == 1000
 
-        sell = client.post(
-            "/transactions",
+        sell = client.post("/transactions", headers=headers,
             json={
                 "date": TODAY,
                 "asset_id": gold_id,
@@ -233,14 +271,13 @@ def test_opening_position_participates_in_snapshot_and_sell_validation():
         )
         assert sell.status_code == 201
 
-        snapshot_after_sell = client.get("/portfolio/snapshot")
+        snapshot_after_sell = client.get("/portfolio/snapshot", headers=headers)
         assert snapshot_after_sell.status_code == 200
         item_after_sell = snapshot_after_sell.json()["items"][0]
         assert item_after_sell["quantity"] == 60
         assert item_after_sell["cost_basis"] == 480
 
-        oversell = client.post(
-            "/transactions",
+        oversell = client.post("/transactions", headers=headers,
             json={
                 "date": TODAY,
                 "asset_id": gold_id,
@@ -253,7 +290,7 @@ def test_opening_position_participates_in_snapshot_and_sell_validation():
         )
         assert oversell.status_code == 400
 
-        transactions = client.get("/transactions")
+        transactions = client.get("/transactions", headers=headers)
         assert transactions.status_code == 200
         assert len(transactions.json()) == 1
 
@@ -264,8 +301,8 @@ def test_unclassified_opening_position_stays_out_of_portfolio_value():
     reset_test_db()
 
     with TestClient(app) as client:
-        asset = client.post(
-            "/assets",
+        headers = auth_headers(client)
+        asset = client.post("/assets", headers=headers,
             json=asset_payload(
                 group_id=None,
                 name="待归类基金",
@@ -277,8 +314,7 @@ def test_unclassified_opening_position_stays_out_of_portfolio_value():
         assert asset.status_code == 201
         asset_id = asset.json()["id"]
 
-        opening = client.post(
-            "/opening-positions",
+        opening = client.post("/opening-positions", headers=headers,
             json={
                 "asset_id": asset_id,
                 "date": TODAY,
@@ -290,7 +326,7 @@ def test_unclassified_opening_position_stays_out_of_portfolio_value():
         )
         assert opening.status_code == 201
 
-        snapshot = client.get("/portfolio/snapshot")
+        snapshot = client.get("/portfolio/snapshot", headers=headers)
         assert snapshot.status_code == 200
         body = snapshot.json()
         assert body["total_value"] == 0
@@ -307,14 +343,14 @@ def test_rebalance_plan_blocks_when_prices_are_missing():
     reset_test_db()
 
     with TestClient(app) as client:
-        structure = client.get("/portfolio/structure")
+        headers = auth_headers(client)
+        structure = client.get("/portfolio/structure", headers=headers)
         assert structure.status_code == 200
         buckets = {bucket["name"]: bucket for bucket in structure.json()}
         stock_group_id = buckets["股票"]["groups"][0]["id"]
         cash_group_id = buckets["现金"]["groups"][0]["id"]
 
-        stock = client.post(
-            "/assets",
+        stock = client.post("/assets", headers=headers,
             json={
                 "group_id": stock_group_id,
                 "name": "纳指 ETF",
@@ -327,8 +363,7 @@ def test_rebalance_plan_blocks_when_prices_are_missing():
                 "include_in_portfolio": True,
             },
         )
-        cash = client.post(
-            "/assets",
+        cash = client.post("/assets", headers=headers,
             json={
                 "group_id": cash_group_id,
                 "name": "现金",
@@ -347,8 +382,7 @@ def test_rebalance_plan_blocks_when_prices_are_missing():
         stock_id = stock.json()["id"]
         cash_id = cash.json()["id"]
 
-        assert client.post(
-            "/transactions",
+        assert client.post("/transactions", headers=headers,
             json={
                 "date": TODAY,
                 "asset_id": stock_id,
@@ -359,8 +393,7 @@ def test_rebalance_plan_blocks_when_prices_are_missing():
                 "note": "init",
             },
         ).status_code == 201
-        assert client.post(
-            "/transactions",
+        assert client.post("/transactions", headers=headers,
             json={
                 "date": TODAY,
                 "asset_id": cash_id,
@@ -372,7 +405,7 @@ def test_rebalance_plan_blocks_when_prices_are_missing():
             },
         ).status_code == 201
 
-        plan = client.get("/rebalance/plan")
+        plan = client.get("/rebalance/plan", headers=headers)
         assert plan.status_code == 200
         body = plan.json()
         assert body["status"] == "incomplete"
@@ -394,12 +427,12 @@ def test_price_fetch_infers_cn_exchange_and_updates_existing_daily_record(monkey
     monkeypatch.setattr(PriceFetcher, "fetch_cn_stock", fake_stock_price)
 
     with TestClient(app) as client:
-        structure = client.get("/portfolio/structure")
+        headers = auth_headers(client)
+        structure = client.get("/portfolio/structure", headers=headers)
         assert structure.status_code == 200
         stock_group_id = next(bucket for bucket in structure.json() if bucket["name"] == "股票")["groups"][0]["id"]
 
-        asset = client.post(
-            "/assets",
+        asset = client.post("/assets", headers=headers,
             json=asset_payload(
                 group_id=stock_group_id,
                 name="北京银行",
@@ -410,13 +443,13 @@ def test_price_fetch_infers_cn_exchange_and_updates_existing_daily_record(monkey
         )
         assert asset.status_code == 201
         asset_id = asset.json()["id"]
-        assert client.put(f"/prices/{asset_id}", json={"price": 7.0, "date": TODAY}).status_code == 200
+        assert client.put(f"/prices/{asset_id}", headers=headers, json={"price": 7.0, "date": TODAY}).status_code == 200
 
-        fetched = client.post(f"/prices/fetch/{asset_id}")
+        fetched = client.post(f"/prices/fetch/{asset_id}", headers=headers)
         assert fetched.status_code == 200
         assert fetched.json() == {"updated": 1, "errors": []}
 
-        assets = client.get("/assets").json()
+        assets = client.get("/assets", headers=headers).json()
         updated_asset = next(item for item in assets if item["id"] == asset_id)
         assert updated_asset["latest_price"] == 7.32
 
@@ -445,12 +478,12 @@ def test_price_fetch_falls_back_to_name_when_code_is_invalid(monkeypatch):
     monkeypatch.setattr(PriceFetcher, "fetch_cn_stock_by_name", fake_stock_by_name)
 
     with TestClient(app) as client:
-        structure = client.get("/portfolio/structure")
+        headers = auth_headers(client)
+        structure = client.get("/portfolio/structure", headers=headers)
         assert structure.status_code == 200
         stock_group_id = next(bucket for bucket in structure.json() if bucket["name"] == "股票")["groups"][0]["id"]
 
-        asset = client.post(
-            "/assets",
+        asset = client.post("/assets", headers=headers,
             json=asset_payload(
                 group_id=stock_group_id,
                 name="北京银行",
@@ -461,7 +494,7 @@ def test_price_fetch_falls_back_to_name_when_code_is_invalid(monkeypatch):
         )
         assert asset.status_code == 201
 
-        fetched = client.post(f"/prices/fetch/{asset.json()['id']}")
+        fetched = client.post(f"/prices/fetch/{asset.json()['id']}", headers=headers)
         assert fetched.status_code == 200
         assert fetched.json() == {"updated": 1, "errors": []}
 
@@ -507,14 +540,14 @@ def test_transaction_can_create_pending_asset_then_classify_it(monkeypatch):
     monkeypatch.setattr(assets_router, "_search_akshare_sync", fake_search)
 
     with TestClient(app) as client:
-        search = client.get("/assets/search", params={"q": "600519"})
+        headers = auth_headers(client)
+        search = client.get("/assets/search", params={"q": "600519"}, headers=headers)
         assert search.status_code == 200
         result = search.json()[0]
         assert result["source"] == "akshare"
         assert result["existing_asset_id"] is None
 
-        created = client.post(
-            "/transactions",
+        created = client.post("/transactions", headers=headers,
             json={
                 "date": TODAY,
                 "asset": {
@@ -535,7 +568,7 @@ def test_transaction_can_create_pending_asset_then_classify_it(monkeypatch):
         assert created.status_code == 201
         asset_id = created.json()["asset_id"]
 
-        assets = client.get("/assets")
+        assets = client.get("/assets", headers=headers)
         assert assets.status_code == 200
         asset = next(item for item in assets.json() if item["id"] == asset_id)
         assert asset["name"] == "贵州茅台"
@@ -543,7 +576,7 @@ def test_transaction_can_create_pending_asset_then_classify_it(monkeypatch):
         assert asset["group_id"] is None
         assert asset["latest_price"] == 1700
 
-        snapshot = client.get("/portfolio/snapshot")
+        snapshot = client.get("/portfolio/snapshot", headers=headers)
         assert snapshot.status_code == 200
         body = snapshot.json()
         assert body["total_value"] == 0
@@ -553,11 +586,12 @@ def test_transaction_can_create_pending_asset_then_classify_it(monkeypatch):
         assert body["items"] == []
         assert len(body["all_items"]) == 1
 
-        structure = client.get("/portfolio/structure")
+        structure = client.get("/portfolio/structure", headers=headers)
         assert structure.status_code == 200
         stock_group_id = next(bucket for bucket in structure.json() if bucket["name"] == "股票")["groups"][0]["id"]
         classified = client.put(
             f"/assets/{asset_id}",
+            headers=headers,
             json={
                 "group_id": stock_group_id,
                 "name": asset["name"],
@@ -572,7 +606,7 @@ def test_transaction_can_create_pending_asset_then_classify_it(monkeypatch):
         )
         assert classified.status_code == 200
 
-        snapshot = client.get("/portfolio/snapshot")
+        snapshot = client.get("/portfolio/snapshot", headers=headers)
         assert snapshot.status_code == 200
         body = snapshot.json()
         assert body["total_value"] == 1700
@@ -587,46 +621,43 @@ def test_asset_delete_allows_unused_assets_and_price_cache_but_blocks_transactio
     reset_test_db()
 
     with TestClient(app) as client:
-        structure = client.get("/portfolio/structure")
+        headers = auth_headers(client)
+        structure = client.get("/portfolio/structure", headers=headers)
         assert structure.status_code == 200
         stock_group_id = next(bucket for bucket in structure.json() if bucket["name"] == "股票")["groups"][0]["id"]
 
-        unused = client.post(
-            "/assets",
+        unused = client.post("/assets", headers=headers,
             json=asset_payload(group_id=stock_group_id, name="误建标的", code="000001", exchange="SZ"),
         )
         assert unused.status_code == 201
         unused_id = unused.json()["id"]
 
-        deleted = client.delete(f"/assets/{unused_id}")
+        deleted = client.delete(f"/assets/{unused_id}", headers=headers)
         assert deleted.status_code == 204
-        assert all(item["id"] != unused_id for item in client.get("/assets").json())
+        assert all(item["id"] != unused_id for item in client.get("/assets", headers=headers).json())
 
-        priced = client.post(
-            "/assets",
+        priced = client.post("/assets", headers=headers,
             json=asset_payload(group_id=None, name="仅有价格的误建标的", code="000002", exchange="SZ", include_in_portfolio=False),
         )
         assert priced.status_code == 201
         priced_id = priced.json()["id"]
-        assert client.put(f"/prices/{priced_id}", json={"price": 12.3, "date": TODAY}).status_code == 200
+        assert client.put(f"/prices/{priced_id}", headers=headers, json={"price": 12.3, "date": TODAY}).status_code == 200
 
-        priced_assets = client.get("/assets")
+        priced_assets = client.get("/assets", headers=headers)
         assert priced_assets.status_code == 200
         priced_asset = next(item for item in priced_assets.json() if item["id"] == priced_id)
         assert priced_asset["price_count"] == 1
 
-        priced_delete = client.delete(f"/assets/{priced_id}")
+        priced_delete = client.delete(f"/assets/{priced_id}", headers=headers)
         assert priced_delete.status_code == 204
-        assert all(item["id"] != priced_id for item in client.get("/assets").json())
+        assert all(item["id"] != priced_id for item in client.get("/assets", headers=headers).json())
 
-        traded = client.post(
-            "/assets",
+        traded = client.post("/assets", headers=headers,
             json=asset_payload(group_id=stock_group_id, name="已有交易标的", code="000003", exchange="SZ"),
         )
         assert traded.status_code == 201
         traded_id = traded.json()["id"]
-        assert client.post(
-            "/transactions",
+        assert client.post("/transactions", headers=headers,
             json={
                 "date": TODAY,
                 "asset_id": traded_id,
@@ -638,9 +669,47 @@ def test_asset_delete_allows_unused_assets_and_price_cache_but_blocks_transactio
             },
         ).status_code == 201
 
-        blocked = client.delete(f"/assets/{traded_id}")
+        blocked = client.delete(f"/assets/{traded_id}", headers=headers)
         assert blocked.status_code == 409
         assert "1 笔交易" in blocked.json()["detail"]
-        assert any(item["id"] == traded_id for item in client.get("/assets").json())
+        assert any(item["id"] == traded_id for item in client.get("/assets", headers=headers).json())
+
+    cleanup_test_db()
+
+
+def test_authenticated_users_have_isolated_portfolios():
+    reset_test_db()
+
+    with TestClient(app) as client:
+        create_user("alice@example.com", "secret-a")
+        create_user("bob@example.com", "secret-b")
+        alice_headers = login_headers(client, "alice@example.com", "secret-a")
+        bob_headers = login_headers(client, "bob@example.com", "secret-b")
+
+        alice_structure = client.get("/portfolio/structure", headers=alice_headers)
+        assert alice_structure.status_code == 200
+        alice_cash_group = next(bucket for bucket in alice_structure.json() if bucket["name"] == "现金")["groups"][0]["id"]
+
+        created = client.post(
+            "/assets",
+            headers=alice_headers,
+            json=asset_payload(group_id=alice_cash_group, name="Alice 现金", asset_type="cash"),
+        )
+        assert created.status_code == 201
+        asset_id = created.json()["id"]
+
+        bob_assets = client.get("/assets", headers=bob_headers)
+        assert bob_assets.status_code == 200
+        assert bob_assets.json() == []
+
+        blocked = client.put(
+            f"/assets/{asset_id}",
+            headers=bob_headers,
+            json=asset_payload(group_id=alice_cash_group, name="Bob 越权", asset_type="cash"),
+        )
+        assert blocked.status_code == 404
+
+        unauthenticated = client.get("/assets")
+        assert unauthenticated.status_code == 401
 
     cleanup_test_db()

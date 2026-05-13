@@ -11,8 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from backend.db import get_db
+from backend.auth import CurrentUser
 from backend.models import Asset, Transaction
-from backend.routers.assets import get_asset_or_404
 
 router = APIRouter(tags=["export"])
 
@@ -22,9 +22,12 @@ CSV_HEADERS = ["date", "asset_name", "asset_code", "type", "qty", "price", "fee"
 
 
 @router.get("/export/transactions")
-def export_transactions(db: DbSession):
+def export_transactions(db: DbSession, current_user: CurrentUser):
     transactions = db.scalars(
-        select(Transaction).options(selectinload(Transaction.asset)).order_by(Transaction.date, Transaction.id)
+        select(Transaction)
+        .options(selectinload(Transaction.asset))
+        .where(Transaction.user_id == current_user.id)
+        .order_by(Transaction.date, Transaction.id)
     ).all()
 
     output = io.StringIO()
@@ -51,7 +54,7 @@ def export_transactions(db: DbSession):
 
 
 @router.post("/import/transactions")
-async def import_transactions(db: DbSession, file: UploadFile = File(...)):
+async def import_transactions(db: DbSession, current_user: CurrentUser, file: UploadFile = File(...)):
     if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请上传 CSV 文件")
 
@@ -59,7 +62,7 @@ async def import_transactions(db: DbSession, file: UploadFile = File(...)):
     text = content.decode("utf-8-sig")
     reader = csv.DictReader(io.StringIO(text))
 
-    assets = db.scalars(select(Asset)).all()
+    assets = db.scalars(select(Asset).where(Asset.user_id == current_user.id)).all()
     assets_by_name = {a.name: a for a in assets}
     assets_by_code = {a.code: a for a in assets if a.code}
 
@@ -77,6 +80,7 @@ async def import_transactions(db: DbSession, file: UploadFile = File(...)):
                 continue
 
             tx = Transaction(
+                user_id=current_user.id,
                 date=date.fromisoformat(row["date"]),
                 asset_id=asset.id,
                 type=row["type"],

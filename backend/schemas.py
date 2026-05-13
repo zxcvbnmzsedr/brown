@@ -13,6 +13,25 @@ PriceState = Literal["fresh", "stale", "missing", "cash"]
 MonitorState = Literal["ok", "watch", "warning", "rebalance", "incomplete"]
 
 
+class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: str
+    name: str | None = None
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserRead
+
+
 class AssetBase(BaseModel):
     group_id: int | None = None
     name: str = Field(min_length=1, max_length=120)

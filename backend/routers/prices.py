@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.db import get_db
+from backend.auth import CurrentUser
 from backend.models import Asset
 from backend.services.price_fetcher import PriceFetcher
 from backend.services.settings import get_rebalance_config
@@ -32,10 +33,10 @@ class AssetPriceStatus(BaseModel):
 
 
 @router.post("/prices/fetch", response_model=FetchResult)
-async def fetch_all_prices(db: DbSession):
+async def fetch_all_prices(db: DbSession, current_user: CurrentUser):
     fetcher = PriceFetcher()
     try:
-        prices = await fetcher.fetch_all_prices(db)
+        prices = await fetcher.fetch_all_prices(db, current_user.id)
         count = fetcher.save_prices(db, prices)
         return FetchResult(updated=count, errors=[])
     except Exception as e:
@@ -45,8 +46,8 @@ async def fetch_all_prices(db: DbSession):
 
 
 @router.post("/prices/fetch/{asset_id}", response_model=FetchResult)
-async def fetch_single_price(asset_id: int, db: DbSession):
-    asset = db.get(Asset, asset_id)
+async def fetch_single_price(asset_id: int, db: DbSession, current_user: CurrentUser):
+    asset = db.scalars(select(Asset).where(Asset.user_id == current_user.id, Asset.id == asset_id).limit(1)).first()
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
 
@@ -64,13 +65,15 @@ async def fetch_single_price(asset_id: int, db: DbSession):
 
 
 @router.get("/prices/status", response_model=list[AssetPriceStatus])
-def price_status(db: DbSession):
+def price_status(db: DbSession, current_user: CurrentUser):
     from datetime import date
 
     from backend.services.snapshot import latest_price_record_for_asset
 
-    config = get_rebalance_config(db)
-    assets = db.scalars(select(Asset).where(Asset.is_active == True).order_by(Asset.id)).all()
+    config = get_rebalance_config(db, current_user.id)
+    assets = db.scalars(
+        select(Asset).where(Asset.user_id == current_user.id, Asset.is_active == True).order_by(Asset.id)
+    ).all()
     result = []
     for asset in assets:
         price_record = latest_price_record_for_asset(db, asset) if asset.type != "cash" else None

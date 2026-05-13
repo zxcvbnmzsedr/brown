@@ -3,10 +3,12 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.db import get_db
-from backend.models import AssetGroup, PortfolioBucket
+from backend.auth import CurrentUser
+from backend.models import AssetGroup
 from backend.schemas import GroupCreate, GroupRead, GroupUpdate
 from backend.routers.buckets import get_bucket_or_404
 
@@ -21,39 +23,41 @@ def group_response(group: AssetGroup) -> GroupRead:
     )
 
 
-def get_group_or_404(db: Session, group_id: int) -> AssetGroup:
-    group = db.get(AssetGroup, group_id)
+def get_group_or_404(db: Session, user_id: int, group_id: int) -> AssetGroup:
+    group = db.scalars(
+        select(AssetGroup).where(AssetGroup.user_id == user_id, AssetGroup.id == group_id).limit(1)
+    ).first()
     if group is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset group not found")
     return group
 
 
 @router.post("", response_model=GroupRead, status_code=status.HTTP_201_CREATED)
-def create_group(payload: GroupCreate, db: DbSession):
-    get_bucket_or_404(db, payload.bucket_id)
-    group = AssetGroup(**payload.model_dump())
+def create_group(payload: GroupCreate, db: DbSession, current_user: CurrentUser):
+    get_bucket_or_404(db, current_user.id, payload.bucket_id)
+    group = AssetGroup(user_id=current_user.id, **payload.model_dump())
     db.add(group)
     db.commit()
     db.refresh(group)
-    group.bucket = get_bucket_or_404(db, group.bucket_id)
+    group.bucket = get_bucket_or_404(db, current_user.id, group.bucket_id)
     return group_response(group)
 
 
 @router.put("/{group_id}", response_model=GroupRead)
-def update_group(group_id: int, payload: GroupUpdate, db: DbSession):
-    get_bucket_or_404(db, payload.bucket_id)
-    group = get_group_or_404(db, group_id)
+def update_group(group_id: int, payload: GroupUpdate, db: DbSession, current_user: CurrentUser):
+    get_bucket_or_404(db, current_user.id, payload.bucket_id)
+    group = get_group_or_404(db, current_user.id, group_id)
     for key, value in payload.model_dump().items():
         setattr(group, key, value)
     db.commit()
     db.refresh(group)
-    group.bucket = get_bucket_or_404(db, group.bucket_id)
+    group.bucket = get_bucket_or_404(db, current_user.id, group.bucket_id)
     return group_response(group)
 
 
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_group(group_id: int, db: DbSession):
-    group = get_group_or_404(db, group_id)
+def delete_group(group_id: int, db: DbSession, current_user: CurrentUser):
+    group = get_group_or_404(db, current_user.id, group_id)
     if group.assets:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Asset group still has assets")
     db.delete(group)

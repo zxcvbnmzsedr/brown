@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from backend.db import get_db
+from backend.auth import CurrentUser
 from backend.models import AssetGroup, PortfolioBucket
 from backend.schemas import BucketCreate, BucketRead, BucketUpdate, GroupRead
 
@@ -30,16 +31,18 @@ def bucket_response(bucket: PortfolioBucket) -> BucketRead:
     )
 
 
-def get_bucket_or_404(db: Session, bucket_id: int) -> PortfolioBucket:
-    bucket = db.get(PortfolioBucket, bucket_id)
+def get_bucket_or_404(db: Session, user_id: int, bucket_id: int) -> PortfolioBucket:
+    bucket = db.scalars(
+        select(PortfolioBucket).where(PortfolioBucket.user_id == user_id, PortfolioBucket.id == bucket_id).limit(1)
+    ).first()
     if bucket is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bucket not found")
     return bucket
 
 
 @router.post("", response_model=BucketRead, status_code=status.HTTP_201_CREATED)
-def create_bucket(payload: BucketCreate, db: DbSession):
-    bucket = PortfolioBucket(**payload.model_dump())
+def create_bucket(payload: BucketCreate, db: DbSession, current_user: CurrentUser):
+    bucket = PortfolioBucket(user_id=current_user.id, **payload.model_dump())
     db.add(bucket)
     db.commit()
     db.refresh(bucket)
@@ -47,8 +50,8 @@ def create_bucket(payload: BucketCreate, db: DbSession):
 
 
 @router.put("/{bucket_id}", response_model=BucketRead)
-def update_bucket(bucket_id: int, payload: BucketUpdate, db: DbSession):
-    bucket = get_bucket_or_404(db, bucket_id)
+def update_bucket(bucket_id: int, payload: BucketUpdate, db: DbSession, current_user: CurrentUser):
+    bucket = get_bucket_or_404(db, current_user.id, bucket_id)
     for key, value in payload.model_dump().items():
         setattr(bucket, key, value)
     db.commit()
@@ -57,8 +60,8 @@ def update_bucket(bucket_id: int, payload: BucketUpdate, db: DbSession):
 
 
 @router.delete("/{bucket_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_bucket(bucket_id: int, db: DbSession):
-    bucket = get_bucket_or_404(db, bucket_id)
+def delete_bucket(bucket_id: int, db: DbSession, current_user: CurrentUser):
+    bucket = get_bucket_or_404(db, current_user.id, bucket_id)
     if bucket.groups:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bucket still has groups")
     db.delete(bucket)

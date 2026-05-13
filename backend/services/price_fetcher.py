@@ -282,10 +282,11 @@ class PriceFetcher:
         logger.warning("Unknown asset type/exchange for %s: type=%s exchange=%s", asset.name, asset.type, asset.exchange)
         return None
 
-    async def fetch_all_prices(self, db: Session) -> dict[int, float]:
-        assets = db.scalars(
-            select(Asset).where(Asset.is_active == True, Asset.type != "cash").order_by(Asset.id)
-        ).all()
+    async def fetch_all_prices(self, db: Session, user_id: int | None = None) -> dict[int, float]:
+        statement = select(Asset).where(Asset.is_active == True, Asset.type != "cash")
+        if user_id is not None:
+            statement = statement.where(Asset.user_id == user_id)
+        assets = db.scalars(statement.order_by(Asset.id)).all()
 
         results: dict[int, float] = {}
         for asset in assets:
@@ -314,7 +315,10 @@ class PriceFetcher:
                 for duplicate in existing_records[1:]:
                     db.delete(duplicate)
             else:
-                db.add(PriceCache(asset_id=asset_id, date=today, price=price, fetched_at=now))
+                asset = db.get(Asset, asset_id)
+                if asset is None:
+                    continue
+                db.add(PriceCache(user_id=asset.user_id, asset_id=asset_id, date=today, price=price, fetched_at=now))
 
             asset = db.get(Asset, asset_id)
             if asset:

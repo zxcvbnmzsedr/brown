@@ -45,12 +45,16 @@ def calculate_position(
     return float(quantize_qty(max(quantity, ZERO))), float(quantize_money(max(cost_basis, ZERO)))
 
 
-def get_current_quantity(db: Session, asset_id: int) -> float:
+def get_current_quantity(db: Session, user_id: int, asset_id: int) -> float:
     transactions = db.scalars(
-        select(Transaction).where(Transaction.asset_id == asset_id).order_by(Transaction.date, Transaction.id)
+        select(Transaction)
+        .where(Transaction.user_id == user_id, Transaction.asset_id == asset_id)
+        .order_by(Transaction.date, Transaction.id)
     ).all()
     opening_position = db.scalars(
-        select(OpeningPosition).where(OpeningPosition.asset_id == asset_id).limit(1)
+        select(OpeningPosition)
+        .where(OpeningPosition.user_id == user_id, OpeningPosition.asset_id == asset_id)
+        .limit(1)
     ).first()
     quantity, _cost = calculate_position(list(transactions), opening_position)
     return quantity

@@ -3,6 +3,18 @@ export type TransactionType = 'buy' | 'sell'
 export type PriceState = 'fresh' | 'stale' | 'missing' | 'cash'
 export type MonitorState = 'ok' | 'watch' | 'warning' | 'rebalance' | 'incomplete'
 
+export interface CurrentUser {
+  id: number
+  email: string
+  name: string | null
+}
+
+export interface LoginResponse {
+  access_token: string
+  token_type: 'bearer'
+  user: CurrentUser
+}
+
 export interface AssetGroup {
   id: number
   bucket_id: number

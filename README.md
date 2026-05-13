@@ -41,8 +41,8 @@ Brown 默认把哈利·布朗永久组合拆成三层状态：
 首次安装：
 
 ```bash
-npm install
-npm --prefix renderer install
+pnpm install
+pnpm --prefix renderer install
 python3 -m venv .venv
 .venv/bin/pip install -r backend/requirements.txt
 ```
@@ -50,7 +50,8 @@ python3 -m venv .venv
 启动前后端：
 
 ```bash
-npm run dev
+just backend
+just frontend
 ```
 
 访问：
@@ -62,15 +63,35 @@ npm run dev
 启动桌面壳：
 
 ```bash
-pnpm run dev:electron
+just electron
 ```
+
+## 云端 C/S 运行
+
+后端已支持独立部署和 PostgreSQL：
+
+```bash
+cp .env.example .env
+just install
+just migrate
+just create-user you@example.com
+just backend
+```
+
+前端通过 `VITE_API_BASE_URL` 指向后端：
+
+```bash
+just build
+```
+
+Electron 现在只负责桌面壳，不再自动启动 Python 后端；桌面和手机 Web/PWA 都访问同一个后端 API。
 
 ## 验证命令
 
 ```bash
-npm run test:backend
-npm --prefix renderer run lint
-npm --prefix renderer run build
+just test-backend
+just lint
+just build
 ```
 
 ## 暂未包含

@@ -310,8 +310,18 @@ export function LedgerPage() {
     }
   }
 
-  function handleExport() {
-    window.open(api.exportTransactions(), '_blank')
+  async function handleExport() {
+    try {
+      const blob = await api.exportTransactions()
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'brown_transactions.csv'
+      link.click()
+      window.URL.revokeObjectURL(url)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '导出失败')
+    }
   }
 
   async function handleImport(event: React.ChangeEvent<HTMLInputElement>) {
@@ -344,7 +354,7 @@ export function LedgerPage() {
             <RefreshCcw size={16} className={loading ? 'spin' : ''} />
             刷新
           </button>
-          <button className="ghost-button" type="button" onClick={handleExport}>
+          <button className="ghost-button" type="button" onClick={() => void handleExport()}>
             <Download size={16} />
             导出 CSV
           </button>

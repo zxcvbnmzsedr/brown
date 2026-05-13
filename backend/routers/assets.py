@@ -9,6 +9,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from backend.db import get_db
+from backend.auth import CurrentUser
 from backend.models import Asset, AssetGroup, PriceCache, Transaction
 from backend.schemas import AssetCreate, AssetRead, AssetResolveRequest, AssetSearchResult, AssetUpdate, PriceRead, PriceUpdate
 from backend.services.price_fetcher import detect_cn_exchange, normalize_code, normalize_exchange, parse_price
@@ -22,8 +23,8 @@ DbSession = Annotated[Session, Depends(get_db)]
 AKSHARE_SEARCH_LIMIT = 10
 
 
-def get_asset_or_404(db: Session, asset_id: int) -> Asset:
-    asset = db.get(Asset, asset_id)
+def get_asset_or_404(db: Session, user_id: int, asset_id: int) -> Asset:
+    asset = db.scalars(select(Asset).where(Asset.user_id == user_id, Asset.id == asset_id).limit(1)).first()
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
     return asset
@@ -89,6 +90,7 @@ def _local_asset_result(db: Session, asset: Asset) -> AssetSearchResult:
 
 def find_existing_asset(
     db: Session,
+    user_id: int,
     *,
     code: str | None,
     exchange: str | None,
@@ -96,7 +98,7 @@ def find_existing_asset(
 ) -> Asset | None:
     normalized_code = _normalize_code(code)
     normalized_exchange = _normalize_exchange(exchange)
-    statement = select(Asset)
+    statement = select(Asset).where(Asset.user_id == user_id)
     if normalized_code:
         statement = statement.where(Asset.code == normalized_code)
         if normalized_exchange:
@@ -104,14 +106,15 @@ def find_existing_asset(
         return db.scalars(statement.limit(1)).first()
 
     if name:
-        return db.scalars(select(Asset).where(Asset.name == name).limit(1)).first()
+        return db.scalars(select(Asset).where(Asset.user_id == user_id, Asset.name == name).limit(1)).first()
 
     return None
 
 
-def create_unclassified_asset(db: Session, payload: AssetResolveRequest, fallback_price: float | None = None) -> Asset:
+def create_unclassified_asset(db: Session, user_id: int, payload: AssetResolveRequest, fallback_price: float | None = None) -> Asset:
     existing = find_existing_asset(
         db,
+        user_id,
         code=payload.code,
         exchange=payload.exchange,
         name=payload.name,
@@ -120,6 +123,7 @@ def create_unclassified_asset(db: Session, payload: AssetResolveRequest, fallbac
         return existing
 
     asset = Asset(
+        user_id=user_id,
         group_id=None,
         name=payload.name.strip(),
         platform=payload.platform.strip() if payload.platform else "AKShare",
@@ -135,12 +139,12 @@ def create_unclassified_asset(db: Session, payload: AssetResolveRequest, fallbac
 
     price_value = payload.latest_price if payload.latest_price is not None and payload.latest_price > 0 else fallback_price
     if price_value is not None and price_value > 0:
-        db.add(PriceCache(asset_id=asset.id, date=date.today(), price=price_value))
+        db.add(PriceCache(user_id=user_id, asset_id=asset.id, date=date.today(), price=price_value))
 
     return asset
 
 
-def _search_local_assets(db: Session, query: str, limit: int) -> list[AssetSearchResult]:
+def _search_local_assets(db: Session, user_id: int, query: str, limit: int) -> list[AssetSearchResult]:
     normalized_query = query.strip()
     if not normalized_query:
         return []
@@ -150,6 +154,7 @@ def _search_local_assets(db: Session, query: str, limit: int) -> list[AssetSearc
         select(Asset)
         .options(selectinload(Asset.group).selectinload(AssetGroup.bucket))
         .where(
+            Asset.user_id == user_id,
             or_(
                 Asset.name.ilike(like_pattern),
                 Asset.code.ilike(like_pattern),
@@ -264,6 +269,7 @@ def _search_akshare_sync(query: str, limit: int) -> list[AssetSearchResult]:
 
 def _merge_search_results(
     db: Session,
+    user_id: int,
     local_results: list[AssetSearchResult],
     remote_results: list[AssetSearchResult],
     limit: int,
@@ -280,7 +286,7 @@ def _merge_search_results(
         if existing:
             continue
 
-        existing_asset = find_existing_asset(db, code=result.code, exchange=result.exchange, name=result.name)
+        existing_asset = find_existing_asset(db, user_id, code=result.code, exchange=result.exchange, name=result.name)
         if existing_asset:
             merged.append(_local_asset_result(db, existing_asset))
         else:
@@ -293,35 +299,36 @@ def _merge_search_results(
 
 
 @router.get("/assets", response_model=list[AssetRead])
-def list_assets(db: DbSession):
+def list_assets(db: DbSession, current_user: CurrentUser):
     assets = db.scalars(
         select(Asset)
         .options(selectinload(Asset.group).selectinload(AssetGroup.bucket))
+        .where(Asset.user_id == current_user.id)
         .order_by(Asset.id)
     ).all()
     return [asset_response(db, asset) for asset in assets]
 
 
 @router.get("/assets/search", response_model=list[AssetSearchResult])
-async def search_assets(db: DbSession, q: str, limit: int = AKSHARE_SEARCH_LIMIT):
+async def search_assets(db: DbSession, current_user: CurrentUser, q: str, limit: int = AKSHARE_SEARCH_LIMIT):
     query = q.strip()
     if len(query) < 2:
         return []
 
     capped_limit = min(max(limit, 1), 20)
-    local_results = _search_local_assets(db, query, capped_limit)
+    local_results = _search_local_assets(db, current_user.id, query, capped_limit)
     if len(local_results) >= capped_limit:
         return local_results[:capped_limit]
 
     remote_results = await asyncio.to_thread(_search_akshare_sync, query, capped_limit)
-    return _merge_search_results(db, local_results, remote_results, capped_limit)
+    return _merge_search_results(db, current_user.id, local_results, remote_results, capped_limit)
 
 
 @router.post("/assets", response_model=AssetRead, status_code=status.HTTP_201_CREATED)
-def create_asset(payload: AssetCreate, db: DbSession):
+def create_asset(payload: AssetCreate, db: DbSession, current_user: CurrentUser):
     if payload.group_id is not None:
-        get_group_or_404(db, payload.group_id)
-    asset = Asset(**payload.model_dump())
+        get_group_or_404(db, current_user.id, payload.group_id)
+    asset = Asset(user_id=current_user.id, **payload.model_dump())
     db.add(asset)
     db.commit()
     db.refresh(asset)
@@ -329,10 +336,10 @@ def create_asset(payload: AssetCreate, db: DbSession):
 
 
 @router.put("/assets/{asset_id}", response_model=AssetRead)
-def update_asset(asset_id: int, payload: AssetUpdate, db: DbSession):
+def update_asset(asset_id: int, payload: AssetUpdate, db: DbSession, current_user: CurrentUser):
     if payload.group_id is not None:
-        get_group_or_404(db, payload.group_id)
-    asset = get_asset_or_404(db, asset_id)
+        get_group_or_404(db, current_user.id, payload.group_id)
+    asset = get_asset_or_404(db, current_user.id, asset_id)
     for key, value in payload.model_dump().items():
         setattr(asset, key, value)
     db.commit()
@@ -341,8 +348,8 @@ def update_asset(asset_id: int, payload: AssetUpdate, db: DbSession):
 
 
 @router.delete("/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_asset(asset_id: int, db: DbSession):
-    asset = get_asset_or_404(db, asset_id)
+def delete_asset(asset_id: int, db: DbSession, current_user: CurrentUser):
+    asset = get_asset_or_404(db, current_user.id, asset_id)
 
     transaction_count = (
         db.scalar(select(func.count()).select_from(Transaction).where(Transaction.asset_id == asset.id)) or 0
@@ -358,13 +365,15 @@ def delete_asset(asset_id: int, db: DbSession):
 
 
 @router.put("/prices/{asset_id}", response_model=PriceRead)
-def update_price(asset_id: int, payload: PriceUpdate, db: DbSession):
-    asset = get_asset_or_404(db, asset_id)
+def update_price(asset_id: int, payload: PriceUpdate, db: DbSession, current_user: CurrentUser):
+    asset = get_asset_or_404(db, current_user.id, asset_id)
     price_value = 1.0 if asset.type == "cash" else payload.price
     target_date = payload.date or date.today()
 
     existing_records = db.scalars(
-        select(PriceCache).where(PriceCache.asset_id == asset.id, PriceCache.date == target_date).order_by(PriceCache.id)
+                select(PriceCache)
+                .where(PriceCache.user_id == current_user.id, PriceCache.asset_id == asset.id, PriceCache.date == target_date)
+                .order_by(PriceCache.id)
     ).all()
 
     if existing_records:
@@ -376,7 +385,7 @@ def update_price(asset_id: int, payload: PriceUpdate, db: DbSession):
         db.refresh(existing)
         return existing
 
-    record = PriceCache(asset_id=asset.id, date=target_date, price=price_value)
+    record = PriceCache(user_id=current_user.id, asset_id=asset.id, date=target_date, price=price_value)
     db.add(record)
     db.commit()
     db.refresh(record)

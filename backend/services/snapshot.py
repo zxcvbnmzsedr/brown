@@ -67,12 +67,13 @@ def _monitor_state_for_drift(
     return "ok"
 
 
-def build_snapshot(db: Session) -> SnapshotResponse:
-    config = get_rebalance_config(db)
+def build_snapshot(db: Session, user_id: int) -> SnapshotResponse:
+    config = get_rebalance_config(db, user_id)
     max_price_age_days = config.max_price_age_days
     buckets = db.scalars(
         select(PortfolioBucket)
         .options(selectinload(PortfolioBucket.groups))
+        .where(PortfolioBucket.user_id == user_id)
         .order_by(PortfolioBucket.display_order, PortfolioBucket.id)
     ).all()
     assets = db.scalars(
@@ -82,6 +83,7 @@ def build_snapshot(db: Session) -> SnapshotResponse:
             selectinload(Asset.opening_position),
             selectinload(Asset.transactions),
         )
+        .where(Asset.user_id == user_id)
         .order_by(Asset.id)
     ).all()
 

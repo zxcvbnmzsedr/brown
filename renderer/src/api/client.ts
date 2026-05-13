@@ -22,17 +22,38 @@ import type {
   Transaction,
   TransactionPayload,
   TransactionUpdate,
+  CurrentUser,
+  LoginResponse,
 } from '../types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8765'
+const TOKEN_KEY = 'brown.access_token'
+
+export function getAccessToken() {
+  return window.localStorage.getItem(TOKEN_KEY)
+}
+
+export function setAccessToken(token: string) {
+  window.localStorage.setItem(TOKEN_KEY, token)
+}
+
+export function clearAccessToken() {
+  window.localStorage.removeItem(TOKEN_KEY)
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = getAccessToken()
+  const headers = new Headers(options.headers)
+  if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json')
+  }
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
+    headers,
   })
 
   if (!response.ok) {
@@ -50,10 +71,24 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     return undefined as T
   }
 
+  if (response.headers.get('content-type')?.includes('text/csv')) {
+    return response.blob() as Promise<T>
+  }
+
   return response.json() as Promise<T>
 }
 
 export const api = {
+  login: async (email: string, password: string) => {
+    const result = await request<LoginResponse>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    })
+    setAccessToken(result.access_token)
+    return result
+  },
+  getMe: () => request<CurrentUser>('/auth/me'),
+
   // Structure
   getStructure: () => request<PortfolioBucket[]>('/portfolio/structure'),
 
@@ -124,10 +159,10 @@ export const api = {
   listRebalances: (limit = 100) => request<RebalanceHistoryRead[]>(`/history/rebalance?limit=${limit}`),
 
   // CSV Export/Import
-  exportTransactions: () => `${API_BASE_URL}/export/transactions`,
+  exportTransactions: () => request<Blob>('/export/transactions'),
   importTransactions: (file: File) => {
     const form = new FormData()
     form.append('file', file)
-    return request<CsvImportResult>('/import/transactions', { method: 'POST', body: form, headers: {} })
+    return request<CsvImportResult>('/import/transactions', { method: 'POST', body: form })
   },
 }

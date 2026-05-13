@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from backend.db import get_db
+from backend.auth import CurrentUser
 from backend.models import OpeningPosition, PriceCache
 from backend.routers.assets import get_asset_or_404
 from backend.schemas import OpeningPositionCreate, OpeningPositionRead, OpeningPositionUpdate
@@ -34,12 +35,12 @@ def opening_position_response(opening_position: OpeningPosition) -> OpeningPosit
     )
 
 
-def sync_opening_price(db: Session, opening_position: OpeningPosition) -> None:
+def sync_opening_price(db: Session, user_id: int, opening_position: OpeningPosition) -> None:
     asset = opening_position.asset
     price_value = 1.0 if asset.type == "cash" else opening_position.current_price
     existing = db.scalars(
         select(PriceCache)
-        .where(PriceCache.asset_id == asset.id, PriceCache.date == opening_position.date)
+        .where(PriceCache.user_id == user_id, PriceCache.asset_id == asset.id, PriceCache.date == opening_position.date)
         .order_by(PriceCache.id)
         .limit(1)
     ).first()
@@ -48,28 +49,31 @@ def sync_opening_price(db: Session, opening_position: OpeningPosition) -> None:
         existing.price = price_value
         return
 
-    db.add(PriceCache(asset_id=asset.id, date=opening_position.date, price=price_value))
+    db.add(PriceCache(user_id=user_id, asset_id=asset.id, date=opening_position.date, price=price_value))
 
 
 @router.get("/opening-positions", response_model=list[OpeningPositionRead])
-def list_opening_positions(db: DbSession):
+def list_opening_positions(db: DbSession, current_user: CurrentUser):
     opening_positions = db.scalars(
         select(OpeningPosition)
         .options(selectinload(OpeningPosition.asset))
+        .where(OpeningPosition.user_id == current_user.id)
         .order_by(OpeningPosition.date.desc(), OpeningPosition.id.desc())
     ).all()
     return [opening_position_response(opening_position) for opening_position in opening_positions]
 
 
 @router.post("/opening-positions", response_model=OpeningPositionRead, status_code=status.HTTP_201_CREATED)
-def upsert_opening_position(payload: OpeningPositionCreate, db: DbSession):
-    asset = get_asset_or_404(db, payload.asset_id)
+def upsert_opening_position(payload: OpeningPositionCreate, db: DbSession, current_user: CurrentUser):
+    asset = get_asset_or_404(db, current_user.id, payload.asset_id)
     opening_position = db.scalars(
-        select(OpeningPosition).where(OpeningPosition.asset_id == asset.id).limit(1)
+        select(OpeningPosition)
+        .where(OpeningPosition.user_id == current_user.id, OpeningPosition.asset_id == asset.id)
+        .limit(1)
     ).first()
 
     if opening_position is None:
-        opening_position = OpeningPosition(asset_id=asset.id)
+        opening_position = OpeningPosition(user_id=current_user.id, asset_id=asset.id)
         db.add(opening_position)
 
     opening_position.asset = asset
@@ -78,7 +82,7 @@ def upsert_opening_position(payload: OpeningPositionCreate, db: DbSession):
     opening_position.cost_price = payload.cost_price
     opening_position.current_price = payload.current_price
     opening_position.note = payload.note
-    sync_opening_price(db, opening_position)
+    sync_opening_price(db, current_user.id, opening_position)
 
     db.commit()
     db.refresh(opening_position)
@@ -87,17 +91,25 @@ def upsert_opening_position(payload: OpeningPositionCreate, db: DbSession):
 
 
 @router.put("/opening-positions/{opening_position_id}", response_model=OpeningPositionRead)
-def update_opening_position(opening_position_id: int, payload: OpeningPositionUpdate, db: DbSession):
-    opening_position = db.get(OpeningPosition, opening_position_id)
+def update_opening_position(opening_position_id: int, payload: OpeningPositionUpdate, db: DbSession, current_user: CurrentUser):
+    opening_position = db.scalars(
+        select(OpeningPosition)
+        .where(OpeningPosition.user_id == current_user.id, OpeningPosition.id == opening_position_id)
+        .limit(1)
+    ).first()
     if opening_position is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opening position not found")
 
     update_data = payload.model_dump(exclude_unset=True)
     if "asset_id" in update_data:
-        asset = get_asset_or_404(db, update_data["asset_id"])
+        asset = get_asset_or_404(db, current_user.id, update_data["asset_id"])
         duplicate = db.scalars(
             select(OpeningPosition)
-            .where(OpeningPosition.asset_id == asset.id, OpeningPosition.id != opening_position.id)
+            .where(
+                OpeningPosition.user_id == current_user.id,
+                OpeningPosition.asset_id == asset.id,
+                OpeningPosition.id != opening_position.id,
+            )
             .limit(1)
         ).first()
         if duplicate:
@@ -109,7 +121,7 @@ def update_opening_position(opening_position_id: int, payload: OpeningPositionUp
 
     db.flush()
     db.refresh(opening_position, attribute_names=["asset"])
-    sync_opening_price(db, opening_position)
+    sync_opening_price(db, current_user.id, opening_position)
 
     db.commit()
     db.refresh(opening_position)
@@ -118,8 +130,12 @@ def update_opening_position(opening_position_id: int, payload: OpeningPositionUp
 
 
 @router.delete("/opening-positions/{opening_position_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_opening_position(opening_position_id: int, db: DbSession):
-    opening_position = db.get(OpeningPosition, opening_position_id)
+def delete_opening_position(opening_position_id: int, db: DbSession, current_user: CurrentUser):
+    opening_position = db.scalars(
+        select(OpeningPosition)
+        .where(OpeningPosition.user_id == current_user.id, OpeningPosition.id == opening_position_id)
+        .limit(1)
+    ).first()
     if opening_position is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opening position not found")
     db.delete(opening_position)

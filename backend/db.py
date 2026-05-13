@@ -4,7 +4,9 @@ import os
 from pathlib import Path
 from typing import Generator
 
-from sqlalchemy import create_engine, event, inspect, text
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, event, select
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
@@ -13,86 +15,57 @@ class Base(DeclarativeBase):
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
+if os.getenv("BROWN_SKIP_DOTENV") != "1":
+    load_dotenv(ROOT_DIR / ".env")
 DEFAULT_DB_PATH = ROOT_DIR / "data" / "brown.sqlite3"
-DATABASE_PATH = Path(os.getenv("BROWN_DB_PATH", DEFAULT_DB_PATH))
-DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
+
+
+def resolve_database_url() -> str:
+    if database_url := os.getenv("DATABASE_URL"):
+        return database_url
+    if database_path := os.getenv("BROWN_DB_PATH"):
+        return f"sqlite:///{Path(database_path)}"
+    return "postgresql+psycopg://brown:brown@127.0.0.1:5432/brown"
+
+
+DATABASE_URL = resolve_database_url()
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
+
+if IS_SQLITE:
+    database_path = Path(DATABASE_URL.removeprefix("sqlite:///"))
+    database_path.parent.mkdir(parents=True, exist_ok=True)
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False} if IS_SQLITE else {},
     future=True,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 
-@event.listens_for(engine, "connect")
+@event.listens_for(Engine, "connect")
 def enable_sqlite_foreign_keys(dbapi_connection, _connection_record):
+    if not IS_SQLITE:
+        return
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
 
 
 def init_db() -> None:
-    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
     from backend import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
-    ensure_compatible_schema()
-    seed_permanent_portfolio()
 
 
-def ensure_compatible_schema() -> None:
-    inspector = inspect(engine)
-    if not inspector.has_table("assets"):
+def seed_permanent_portfolio(user_id: int, db: Session | None = None) -> None:
+    if db is None:
+        with SessionLocal() as session:
+            seed_permanent_portfolio(user_id, db=session)
+            session.commit()
         return
 
-    asset_columns = {column["name"] for column in inspector.get_columns("assets")}
-    alter_statements = []
-    if "group_id" not in asset_columns:
-        alter_statements.append("ALTER TABLE assets ADD COLUMN group_id INTEGER")
-    if "platform" not in asset_columns:
-        alter_statements.append("ALTER TABLE assets ADD COLUMN platform VARCHAR(120)")
-    if "is_active" not in asset_columns:
-        alter_statements.append("ALTER TABLE assets ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1")
-    if "include_in_portfolio" not in asset_columns:
-        alter_statements.append("ALTER TABLE assets ADD COLUMN include_in_portfolio BOOLEAN NOT NULL DEFAULT 1")
-    if "last_fetched_at" not in asset_columns:
-        alter_statements.append("ALTER TABLE assets ADD COLUMN last_fetched_at DATETIME")
-
-    if not inspector.has_table("opening_positions"):
-        alter_statements.append(
-            """
-            CREATE TABLE opening_positions (
-                id INTEGER NOT NULL,
-                asset_id INTEGER NOT NULL,
-                date DATE NOT NULL,
-                qty FLOAT NOT NULL,
-                cost_price FLOAT NOT NULL,
-                current_price FLOAT NOT NULL,
-                note TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                PRIMARY KEY (id),
-                UNIQUE (asset_id),
-                FOREIGN KEY(asset_id) REFERENCES assets (id) ON DELETE CASCADE
-            )
-            """
-        )
-        alter_statements.extend(
-            [
-                "CREATE INDEX ix_opening_positions_id ON opening_positions (id)",
-                "CREATE UNIQUE INDEX ix_opening_positions_asset_id ON opening_positions (asset_id)",
-                "CREATE INDEX ix_opening_positions_date ON opening_positions (date)",
-            ]
-        )
-
-    if alter_statements:
-        with engine.begin() as connection:
-            for statement in alter_statements:
-                connection.execute(text(statement))
-
-
-def seed_permanent_portfolio() -> None:
-    from backend.models import Asset, AssetGroup, PortfolioBucket
+    from backend.models import AssetGroup, PortfolioBucket
 
     defaults = [
         ("股票", 0.25, [("美股指数", 0.10), ("A股", 0.10), ("A股进攻", 0.05)]),
@@ -101,38 +74,30 @@ def seed_permanent_portfolio() -> None:
         ("现金", 0.25, [("现金", 0.25)]),
     ]
 
-    with SessionLocal() as db:
-        existing_bucket_count = db.query(PortfolioBucket).count()
-        if existing_bucket_count == 0:
-            for bucket_index, (bucket_name, bucket_weight, groups) in enumerate(defaults, start=1):
-                bucket = PortfolioBucket(
-                    name=bucket_name,
-                    target_weight=bucket_weight,
-                    display_order=bucket_index,
-                )
-                db.add(bucket)
-                db.flush()
-                for group_index, (group_name, group_weight) in enumerate(groups, start=1):
-                    db.add(
-                        AssetGroup(
-                            bucket_id=bucket.id,
-                            name=group_name,
-                            target_weight=group_weight,
-                            display_order=group_index,
-                        )
+    existing_bucket_count = db.scalar(
+        select(PortfolioBucket).where(PortfolioBucket.user_id == user_id).limit(1)
+    )
+    if existing_bucket_count is None:
+        for bucket_index, (bucket_name, bucket_weight, groups) in enumerate(defaults, start=1):
+            bucket = PortfolioBucket(
+                user_id=user_id,
+                name=bucket_name,
+                target_weight=bucket_weight,
+                display_order=bucket_index,
+            )
+            db.add(bucket)
+            db.flush()
+            for group_index, (group_name, group_weight) in enumerate(groups, start=1):
+                db.add(
+                    AssetGroup(
+                        user_id=user_id,
+                        bucket_id=bucket.id,
+                        name=group_name,
+                        target_weight=group_weight,
+                        display_order=group_index,
                     )
-            db.commit()
-
-        groups_by_name = {group.name: group for group in db.query(AssetGroup).all()}
-        changed = False
-        for asset in db.query(Asset).filter(Asset.group_id.is_(None)).all():
-            group_name = infer_group_name(asset.name, asset.code, asset.type)
-            group = groups_by_name.get(group_name) or groups_by_name.get("A股")
-            if group:
-                asset.group_id = group.id
-                changed = True
-        if changed:
-            db.commit()
+                )
+        db.flush()
 
 
 def infer_group_name(name: str, code: str | None, asset_type: str) -> str:

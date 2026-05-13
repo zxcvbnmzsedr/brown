@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from backend.db import get_db
+from backend.auth import CurrentUser
 from backend.models import Transaction
 from backend.schemas import TransactionCreate, TransactionRead, TransactionUpdate
 from backend.services.position import get_current_quantity
@@ -36,12 +37,13 @@ def transaction_response(transaction: Transaction) -> TransactionRead:
 @router.get("/transactions", response_model=list[TransactionRead])
 def list_transactions(
     db: DbSession,
+    current_user: CurrentUser,
     asset_id: int | None = None,
     type: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
 ):
-    statement = select(Transaction).options(selectinload(Transaction.asset))
+    statement = select(Transaction).options(selectinload(Transaction.asset)).where(Transaction.user_id == current_user.id)
     if asset_id is not None:
         statement = statement.where(Transaction.asset_id == asset_id)
     if type is not None:
@@ -56,17 +58,17 @@ def list_transactions(
 
 
 @router.post("/transactions", response_model=TransactionRead, status_code=status.HTTP_201_CREATED)
-def create_transaction(payload: TransactionCreate, db: DbSession):
+def create_transaction(payload: TransactionCreate, db: DbSession, current_user: CurrentUser):
     if payload.asset_id is None and payload.asset is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请选择或搜索确认一个标的")
 
     asset = (
-        get_asset_or_404(db, payload.asset_id)
+        get_asset_or_404(db, current_user.id, payload.asset_id)
         if payload.asset_id is not None
-        else create_unclassified_asset(db, payload.asset, fallback_price=payload.price)
+        else create_unclassified_asset(db, current_user.id, payload.asset, fallback_price=payload.price)
     )
     if payload.type == "sell":
-        current_quantity = get_current_quantity(db, asset.id)
+        current_quantity = get_current_quantity(db, current_user.id, asset.id)
         if payload.qty > current_quantity + 0.0000001:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -74,6 +76,7 @@ def create_transaction(payload: TransactionCreate, db: DbSession):
             )
 
     transaction = Transaction(
+        user_id=current_user.id,
         date=payload.date,
         asset_id=asset.id,
         type=payload.type,
@@ -90,19 +93,21 @@ def create_transaction(payload: TransactionCreate, db: DbSession):
 
 
 @router.put("/transactions/{transaction_id}", response_model=TransactionRead)
-def update_transaction(transaction_id: int, payload: TransactionUpdate, db: DbSession):
-    transaction = db.get(Transaction, transaction_id)
+def update_transaction(transaction_id: int, payload: TransactionUpdate, db: DbSession, current_user: CurrentUser):
+    transaction = db.scalars(
+        select(Transaction).where(Transaction.user_id == current_user.id, Transaction.id == transaction_id).limit(1)
+    ).first()
     if transaction is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
 
     update_data = payload.model_dump(exclude_unset=True)
 
     if "asset_id" in update_data:
-        get_asset_or_404(db, update_data["asset_id"])
+        get_asset_or_404(db, current_user.id, update_data["asset_id"])
 
     if "qty" in update_data and update_data.get("type", transaction.type) == "sell":
         asset_id = update_data.get("asset_id", transaction.asset_id)
-        current_quantity = get_current_quantity(db, asset_id)
+        current_quantity = get_current_quantity(db, current_user.id, asset_id)
         new_qty = update_data["qty"]
         if new_qty > current_quantity + 0.0000001:
             raise HTTPException(
@@ -120,8 +125,10 @@ def update_transaction(transaction_id: int, payload: TransactionUpdate, db: DbSe
 
 
 @router.delete("/transactions/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_transaction(transaction_id: int, db: DbSession):
-    transaction = db.get(Transaction, transaction_id)
+def delete_transaction(transaction_id: int, db: DbSession, current_user: CurrentUser):
+    transaction = db.scalars(
+        select(Transaction).where(Transaction.user_id == current_user.id, Transaction.id == transaction_id).limit(1)
+    ).first()
     if transaction is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
     db.delete(transaction)

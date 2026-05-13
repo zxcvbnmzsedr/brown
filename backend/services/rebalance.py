@@ -10,8 +10,8 @@ from backend.services.settings import get_rebalance_config
 from backend.services.snapshot import build_snapshot, latest_price_for_asset
 
 
-def compute_rebalance(db: Session, threshold: float = 0.15) -> RebalanceResponse:
-    snapshot = build_snapshot(db)
+def compute_rebalance(db: Session, user_id: int, threshold: float = 0.15) -> RebalanceResponse:
+    snapshot = build_snapshot(db, user_id)
     suggestions: list[RebalanceSuggestion] = []
 
     if snapshot.total_value <= 0:
@@ -103,9 +103,9 @@ def _status_message(status: str) -> str:
     }[status]
 
 
-def compute_rebalance_plan(db: Session) -> RebalancePlanResponse:
-    config = get_rebalance_config(db)
-    snapshot = build_snapshot(db)
+def compute_rebalance_plan(db: Session, user_id: int) -> RebalancePlanResponse:
+    config = get_rebalance_config(db, user_id)
+    snapshot = build_snapshot(db, user_id)
     total_value = snapshot.total_value
 
     if total_value <= 0:
@@ -173,7 +173,7 @@ def compute_rebalance_plan(db: Session) -> RebalancePlanResponse:
             selectinload(Asset.opening_position),
             selectinload(Asset.transactions),
         )
-        .where(Asset.is_active == True, Asset.include_in_portfolio == True)
+        .where(Asset.user_id == user_id, Asset.is_active == True, Asset.include_in_portfolio == True)
         .order_by(Asset.id)
     ).all()
 
