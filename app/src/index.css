@@ -1,0 +1,357 @@
+:root {
+  color: #172033;
+  background: #f4f6f8;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.auth-loading,
+.login-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-panel {
+  width: min(440px, 100%);
+  padding: 28px;
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 50px rgb(23 32 51 / 10%);
+}
+
+.login-brand,
+.topbar,
+.topbar-actions,
+.metrics article,
+.table-row,
+.transaction-row {
+  display: flex;
+  align-items: center;
+}
+
+.brand-mark {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  margin-right: 12px;
+  place-items: center;
+  border-radius: 8px;
+  background: #2458d3;
+  color: #fff;
+  font-weight: 800;
+}
+
+.login-brand-text {
+  display: grid;
+  gap: 2px;
+}
+
+.login-brand-text small,
+.login-heading p,
+.topbar p,
+.table-row small,
+.transaction-row small,
+.bucket-row small {
+  color: #657287;
+}
+
+.login-heading h1,
+.topbar h1,
+.panel h2 {
+  margin: 0;
+}
+
+.login-heading {
+  margin: 28px 0 18px;
+}
+
+.mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 18px;
+  border-radius: 8px;
+  background: #edf1f5;
+}
+
+.mode-switch button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #657287;
+}
+
+.mode-switch .active {
+  background: #fff;
+  color: #172033;
+  box-shadow: 0 1px 4px rgb(23 32 51 / 12%);
+}
+
+.login-fields,
+.inline-form,
+.transaction-form {
+  display: grid;
+  gap: 12px;
+}
+
+.login-field {
+  display: grid;
+  gap: 6px;
+}
+
+.login-field-label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.login-input-wrap {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+}
+
+.login-input-wrap input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+}
+
+.login-input-toggle,
+.icon-button {
+  display: inline-grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.primary-button,
+.inline-form button,
+.transaction-form button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: #2458d3;
+  color: #fff;
+  font-weight: 700;
+}
+
+.login-submit {
+  width: 100%;
+  margin-top: 18px;
+}
+
+.alert {
+  padding: 12px 14px;
+  border: 1px solid #f2b8b5;
+  border-radius: 8px;
+  background: #fff4f3;
+  color: #9d241f;
+}
+
+.login-alert {
+  margin-bottom: 14px;
+}
+
+.workspace {
+  width: min(1320px, 100%);
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.topbar {
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.topbar-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.topbar select,
+.inline-form input,
+.inline-form select,
+.transaction-form input,
+.transaction-form select {
+  min-height: 42px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.metrics,
+.grid {
+  display: grid;
+  gap: 16px;
+}
+
+.metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.metrics article,
+.panel {
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.metrics article {
+  gap: 12px;
+  padding: 18px;
+}
+
+.metrics article span {
+  flex: 1;
+  color: #657287;
+}
+
+.metrics article strong {
+  font-size: 22px;
+}
+
+.grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.panel {
+  padding: 18px;
+}
+
+.panel h2 {
+  margin-bottom: 14px;
+  font-size: 18px;
+}
+
+.inline-form {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 14px;
+}
+
+.checkline {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+}
+
+.table-list,
+.transaction-list,
+.bucket-list {
+  display: grid;
+  gap: 8px;
+}
+
+.table-row,
+.transaction-row,
+.bucket-row {
+  min-height: 48px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f7f9fb;
+}
+
+.table-row,
+.transaction-row {
+  gap: 10px;
+}
+
+.table-row span,
+.transaction-row span,
+.bucket-row span {
+  flex: 1;
+  min-width: 0;
+}
+
+.bucket-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.transaction-form {
+  grid-template-columns: 110px minmax(160px, 1fr) minmax(140px, 1fr) minmax(140px, 1fr) 150px 110px 110px 110px minmax(140px, 1fr) 96px;
+  margin-bottom: 14px;
+}
+
+.login-spin {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 900px) {
+  .workspace {
+    padding: 14px;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .metrics,
+  .grid.two,
+  .inline-form,
+  .transaction-form {
+    grid-template-columns: 1fr;
+  }
+
+  .bucket-row {
+    grid-template-columns: 1fr;
+  }
+}

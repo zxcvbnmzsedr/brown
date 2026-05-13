@@ -1,48 +1,21 @@
 {
   "name": "brown",
   "private": true,
-  "version": "0.1.0",
-  "main": "electron-dist/main.js",
+  "version": "1.0.0",
   "scripts": {
-    "dev": "concurrently -n api,web -c cyan,green \"pnpm dev:backend\" \"pnpm dev:renderer\"",
-    "dev:backend": ".venv/bin/uvicorn backend.app:app --reload --host 127.0.0.1 --port 8765",
-    "dev:renderer": "pnpm --prefix renderer run dev -- --host 127.0.0.1 --port 5174 --strictPort",
-    "dev:electron": "concurrently -k -n web,electron -c green,magenta \"pnpm dev:renderer\" \"pnpm dev:electron:main\"",
-    "dev:electron:main": "tsc -p electron/tsconfig.json && electron .",
-    "build": "pnpm --prefix renderer run build",
-    "build:electron": "pnpm build && electron-builder",
-    "pack": "electron-builder --dir",
-    "lint": "pnpm --prefix renderer run lint",
-    "test:backend": ".venv/bin/python -m pytest backend/tests -q"
-  },
-  "build": {
-    "appId": "com.brown.portfolio",
-    "productName": "Brown",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "electron-dist/**/*",
-      "renderer/dist/**/*",
-      "backend/**/*",
-      ".venv/**/*",
-      "data/**/*"
-    ],
-    "mac": {
-      "target": "dmg",
-      "icon": "renderer/public/favicon.svg"
-    },
-    "win": {
-      "target": "nsis",
-      "icon": "renderer/public/favicon.svg"
-    }
+    "dev": "concurrently -n api,app,admin -c cyan,green,magenta \"pnpm dev:server\" \"pnpm dev:app\" \"pnpm dev:admin\"",
+    "dev:server": ".venv/bin/uvicorn server.app:app --reload --host 127.0.0.1 --port 8765",
+    "dev:app": "pnpm --prefix app run dev -- --host 127.0.0.1 --port 5174 --strictPort",
+    "dev:admin": "pnpm --prefix admin run dev -- --host 127.0.0.1 --port 5175 --strictPort",
+    "build": "pnpm --prefix app run build",
+    "build:admin": "pnpm --prefix admin run build",
+    "lint": "pnpm --prefix app run lint",
+    "lint:admin": "pnpm --prefix admin run lint",
+    "test:server": ".venv/bin/python -m pytest server/tests -q"
   },
   "devDependencies": {
-    "@types/electron": "^1.4.38",
     "@types/node": "^25.6.0",
     "concurrently": "^9.2.1",
-    "electron": "^42.0.0",
-    "electron-builder": "^26.8.1",
     "typescript": "^6.0.3"
   }
 }

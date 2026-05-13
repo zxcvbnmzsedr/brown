@@ -1,0 +1,107 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 1120px;
+  margin: 0;
+  background: #f4f6fa;
+  color: #172033;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", "Segoe UI",
+    system-ui, sans-serif;
+}
+
+.authPage,
+.loadingPage {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 32px;
+}
+
+.authCard {
+  width: 420px;
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(38, 55, 82, 0.1);
+}
+
+.authCard .ant-typography {
+  margin-top: 0;
+}
+
+.shell {
+  min-height: 100vh;
+}
+
+.sider {
+  border-right: 1px solid #e4e8f0;
+}
+
+.brand {
+  padding: 28px 24px;
+}
+
+.brand .ant-typography {
+  margin: 0;
+}
+
+.content {
+  padding: 24px;
+}
+
+.topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.topbar .ant-typography {
+  margin: 0;
+}
+
+.workspaceTabs {
+  min-height: calc(100vh - 136px);
+}
+
+.workspaceTabs > .ant-tabs-nav {
+  width: 150px;
+}
+
+.panel {
+  width: 100%;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 18px;
+}
+
+.panelHeader .ant-typography {
+  margin-top: 0;
+}
+
+.toolbar {
+  margin-bottom: 14px;
+}
+
+.filterSelect {
+  width: 150px;
+}
+
+.filterInput {
+  width: 150px;
+}
+
+.syncInput {
+  width: 260px;
+}
+
+.fullWidth {
+  width: 100%;
+}

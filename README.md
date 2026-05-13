@@ -1,40 +1,22 @@
 # Brown
 
-Brown 是一个本地运行的永久组合投资管理 MVP。当前版本聚焦最小闭环：维护永久组合结构、录入具体标的和交易、手动更新价格、查看持仓快照、生成再平衡建议。
+Brown 是一个 Web/PWA 形态的永久组合资产统计工具，分为用户端和运营后台。
 
-## MVP 功能
+## 架构
 
-- 组合结构：资产大类、资产细则、目标占比
-- 标的管理：新增、编辑、删除、平台、代码、所属细则
-- 交易账单：买入、卖出、删除交易
-- 手动价格：非现金标的手动更新价格，现金价格固定为 1
-- 持仓快照：按股票、黄金、债券、现金四大资产桶聚合
-- 纪律监控：按正常、观察、提醒、再平衡、价格不完整分层展示
-- 再平衡建议：默认使用 35/15 法则，先按资产大类判断，再拆到具体标的
-- 价格有效性：缺失或过期价格会阻止交易清单生成
-- 执行归档：可把当前再平衡计划保存到历史记录
-- 桌面提醒：Electron 环境下触发再平衡时发送系统通知
+- `server/`：FastAPI 服务端。
+- `app/`：用户端 Web/PWA，用于注册登录、现金账户、投资账户、交易流水和资产统计。
+- `admin/`：运营后台，用 `.env` 管理员账号登录，只维护全局基础数据。
 
-## 永久组合建模
+Electron 已移除。
 
-Brown 当前按《哈利·布朗的永久投资组合》的四大资产桶建模：
+## 数据边界
 
-- 股票：默认 25%，下设美股指数、A股、A股进攻
-- 黄金：默认 25%
-- 债券：默认 25%
-- 现金：默认 25%
-
-具体基金、ETF、现金账户、公积金账户都挂在资产细则下面。再平衡计算优先看四大类是否偏离，再把该大类下的具体标的作为候选执行工具。
-
-## 再平衡规则
-
-Brown 默认把哈利·布朗永久组合拆成三层状态：
-
-- 观察区：资产桶偏离目标超过 5 个百分点
-- 提醒区：资产桶偏离目标超过 10 个百分点
-- 再平衡区：经典 35/15 法则，任一资产桶达到 35% 或跌到 15%
-
-如果持仓标的缺少价格，或价格超过配置的有效天数，系统会进入“价格数据不完整”状态，先提示补价格，不生成交易清单。
+- 运营后台维护全局 `instruments`、`instrument_prices`、`trading_platforms`。
+- 用户端维护 `portfolios`、`investment_accounts`、`cash_accounts`、`user_assets`、`transactions`。
+- 现金不是标的，不进入 `instruments`。
+- 持仓不单独落 `positions` 表，由真实 `buy/sell` 交易流水聚合。
+- 买入/卖出选择现金账户时，会自动修正现金余额；未选择现金账户时只记录投资交易。
 
 ## 本地开发
 
@@ -42,60 +24,45 @@ Brown 默认把哈利·布朗永久组合拆成三层状态：
 
 ```bash
 pnpm install
-pnpm --prefix renderer install
+pnpm --prefix app install
+pnpm --prefix admin install
 python3 -m venv .venv
-.venv/bin/pip install -r backend/requirements.txt
+.venv/bin/pip install -r server/requirements.txt
 ```
 
-启动前后端：
+配置：
 
 ```bash
-just backend
-just frontend
+cp .env.example .env
+```
+
+启动：
+
+```bash
+just server
+just app
+just admin
 ```
 
 访问：
 
-- 前端：http://127.0.0.1:5174
-- 后端：http://127.0.0.1:8765
+- 用户端：http://127.0.0.1:5174
+- 运营后台：http://127.0.0.1:5175
+- 服务端：http://127.0.0.1:8765
 - API 文档：http://127.0.0.1:8765/docs
 
-启动桌面壳：
+## 数据库
+
+当前是开发期硬切 schema，不兼容旧数据库。需要重建本地库后执行：
 
 ```bash
-just electron
-```
-
-## 云端 C/S 运行
-
-后端已支持独立部署和 PostgreSQL：
-
-```bash
-cp .env.example .env
-just install
 just migrate
-just create-user you@example.com
-just backend
 ```
 
-前端通过 `VITE_API_BASE_URL` 指向后端：
+## 验证
 
 ```bash
-just build
-```
-
-Electron 现在只负责桌面壳，不再自动启动 Python 后端；桌面和手机 Web/PWA 都访问同一个后端 API。
-
-## 验证命令
-
-```bash
-just test-backend
+just test-server
 just lint
 just build
 ```
-
-## 暂未包含
-
-- Electron 打包
-- 回测
-- 微信数据提取

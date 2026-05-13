@@ -1,45 +1,55 @@
 set dotenv-load := true
 
-backend_host := "127.0.0.1"
-backend_port := "8765"
+server_host := "127.0.0.1"
+server_port := "8765"
 
 default:
     @just --list
 
 install:
-    .venv/bin/pip install -r backend/requirements.txt
+    .venv/bin/pip install -r server/requirements.txt
     pnpm install
-    pnpm --prefix renderer install
+    pnpm --prefix app install
+    pnpm --prefix admin install
 
 migrate:
     .venv/bin/alembic upgrade head
 
 create-user email:
-    .venv/bin/python -m backend.cli create-user --email {{email}}
+    .venv/bin/python -m server.cli create-user --email {{email}}
 
-backend:
-    .venv/bin/uvicorn backend.app:app --reload --host {{backend_host}} --port {{backend_port}}
+server:
+    .venv/bin/uvicorn server.app:app --reload --host {{server_host}} --port {{server_port}}
 
-frontend:
-    pnpm dev:renderer
+app:
+    pnpm dev:app
 
-electron:
-    pnpm dev:electron
+admin:
+    pnpm dev:admin
+
+admin-lint:
+    pnpm lint:admin
+
+admin-build:
+    pnpm build:admin
 
 test:
-    just test-backend
+    just test-server
     pnpm lint
     pnpm build
-    pnpm exec tsc -p electron/tsconfig.json
+    pnpm lint:admin
+    pnpm build:admin
 
-test-backend:
-    just --no-dotenv --justfile "{{justfile()}}" --working-directory "{{justfile_directory()}}" _test-backend
+test-server:
+    just --no-dotenv --justfile "{{justfile()}}" --working-directory "{{justfile_directory()}}" _test-server
 
-_test-backend:
-    env -u DATABASE_URL -u CORS_ORIGINS BROWN_SKIP_DOTENV=1 pnpm test:backend
+_test-server:
+    env -u DATABASE_URL -u CORS_ORIGINS BROWN_SKIP_DOTENV=1 pnpm test:server
 
 lint:
     pnpm lint
+    pnpm lint:admin
 
 build:
     pnpm build
+    pnpm build:admin
