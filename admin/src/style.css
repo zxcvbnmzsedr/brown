@@ -5,8 +5,8 @@
 body {
   min-width: 1120px;
   margin: 0;
-  background: #f4f6fa;
-  color: #172033;
+  background: #f5f7fb;
+  color: #1f2937;
   font-family:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", "Segoe UI",
     system-ui, sans-serif;
@@ -35,43 +35,95 @@ body {
 }
 
 .sider {
-  border-right: 1px solid #e4e8f0;
+  overflow: auto;
+  height: 100vh;
+  position: sticky;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  background: #001529;
 }
 
 .brand {
-  padding: 28px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 64px;
+  padding: 0 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.brandIcon {
+  display: grid;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 8px;
+  background: #1677ff;
+  color: #fff;
+  font-size: 18px;
+}
+
+.brandText {
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .brand .ant-typography {
   margin: 0;
+  color: #fff;
 }
 
-.content {
-  padding: 24px;
+.brand .ant-typography-secondary {
+  color: rgba(255, 255, 255, 0.62) !important;
 }
 
-.topbar {
+.ant-layout-sider-collapsed .brand {
+  justify-content: center;
+  padding: 0;
+}
+
+.ant-layout-sider-collapsed .brandText {
+  display: none;
+}
+
+.header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 20px;
+  height: 64px;
+  padding: 0 24px;
+  background: #fff;
+  border-bottom: 1px solid #eef1f6;
 }
 
-.topbar .ant-typography {
+.headerTitle {
+  min-width: 0;
+}
+
+.headerTitle .ant-typography {
   margin: 0;
 }
 
-.workspaceTabs {
-  min-height: calc(100vh - 136px);
+.accountBar {
+  flex: 0 0 auto;
 }
 
-.workspaceTabs > .ant-tabs-nav {
-  width: 150px;
+.content {
+  min-height: calc(100vh - 64px);
+  padding: 24px;
+  background: #f5f7fb;
 }
 
 .panel {
   width: 100%;
+  min-height: calc(100vh - 112px);
+  padding: 24px;
+  background: #fff;
+  border: 1px solid #eef1f6;
+  border-radius: 8px;
 }
 
 .panelHeader {
@@ -87,7 +139,11 @@ body {
 }
 
 .toolbar {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid #eef1f6;
+  border-radius: 8px;
 }
 
 .filterSelect {

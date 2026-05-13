@@ -12,12 +12,12 @@ import {
   Space,
   Switch,
   Table,
-  Tabs,
+  Menu,
   Tag,
   Typography,
   theme,
 } from 'antd'
-import type { TableColumnsType } from 'antd'
+import type { MenuProps, TableColumnsType } from 'antd'
 import {
   BankOutlined,
   CloudSyncOutlined,
@@ -27,8 +27,10 @@ import {
   LogoutOutlined,
   PlusOutlined,
   SearchOutlined,
+  TeamOutlined,
 } from '@ant-design/icons'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import { api, clearAccessToken, getAccessToken } from './api'
 import type {
   AdminUser,
@@ -81,6 +83,40 @@ const priceStateColors: Record<PriceState, string> = {
   stale: 'orange',
   missing: 'red',
 }
+
+type AdminSectionKey = 'instruments' | 'platforms' | 'prices'
+
+const adminSections: Array<{
+  key: AdminSectionKey
+  label: string
+  description: string
+  icon: ReactNode
+  content: ReactNode
+}> = [
+  {
+    key: 'instruments',
+    label: '标的库',
+    description: '维护全局可交易、可报价标的。',
+    icon: <DatabaseOutlined />,
+    content: <InstrumentsPanel />,
+  },
+  {
+    key: 'platforms',
+    label: '交易平台',
+    description: '维护券商、银行、基金平台和钱包入口。',
+    icon: <BankOutlined />,
+    content: <PlatformsPanel />,
+  },
+  {
+    key: 'prices',
+    label: '价格管理',
+    description: '抓取和手动维护标的最新价格。',
+    icon: <DollarOutlined />,
+    content: <PricesPanel />,
+  },
+]
+
+const adminMenuItems: MenuProps['items'] = adminSections.map(({ key, label, icon }) => ({ key, label, icon }))
 
 function AuthPanel({ onAuthenticated }: { onAuthenticated: (admin: AdminUser) => void }) {
   const { message } = AntdApp.useApp()
@@ -593,38 +629,46 @@ function PricesPanel() {
 }
 
 function AdminShell({ admin, onLogout }: { admin: AdminUser; onLogout: () => void }) {
-  const tabs = useMemo(
-    () => [
-      { key: 'instruments', label: '标的库', icon: <DatabaseOutlined />, children: <InstrumentsPanel /> },
-      { key: 'platforms', label: '交易平台', icon: <BankOutlined />, children: <PlatformsPanel /> },
-      { key: 'prices', label: '价格管理', icon: <DollarOutlined />, children: <PricesPanel /> },
-    ],
-    [],
+  const [currentSection, setCurrentSection] = useState<AdminSectionKey>('instruments')
+  const activeSection = useMemo(
+    () => adminSections.find((section) => section.key === currentSection) ?? adminSections[0],
+    [currentSection],
   )
 
   return (
     <Layout className="shell">
-      <Layout.Sider width={248} theme="light" className="sider">
+      <Layout.Sider width={232} breakpoint="lg" collapsedWidth={72} className="sider">
         <div className="brand">
-          <Typography.Title level={4}>Brown Admin</Typography.Title>
-          <Typography.Text type="secondary">运营基础库</Typography.Text>
-        </div>
-      </Layout.Sider>
-      <Layout.Content className="content">
-        <div className="topbar">
-          <div>
-            <Typography.Title level={2}>运营后台</Typography.Title>
-            <Typography.Text type="secondary">维护全局标的、交易平台和价格。</Typography.Text>
+          <DatabaseOutlined className="brandIcon" />
+          <div className="brandText">
+            <Typography.Title level={4}>Brown Admin</Typography.Title>
+            <Typography.Text>运营基础库</Typography.Text>
           </div>
-          <Space>
+        </div>
+        <Menu
+          theme="dark"
+          mode="inline"
+          selectedKeys={[currentSection]}
+          items={adminMenuItems}
+          onClick={({ key }) => setCurrentSection(key as AdminSectionKey)}
+        />
+      </Layout.Sider>
+      <Layout>
+        <Layout.Header className="header">
+          <div className="headerTitle">
+            <Typography.Title level={3}>{activeSection.label}</Typography.Title>
+            <Typography.Text type="secondary">{activeSection.description}</Typography.Text>
+          </div>
+          <Space className="accountBar" size={12}>
+            <TeamOutlined />
             <Typography.Text>{admin.email}</Typography.Text>
             <Button icon={<LogoutOutlined />} onClick={onLogout}>
               退出
             </Button>
           </Space>
-        </div>
-        <Tabs items={tabs} tabPlacement="start" className="workspaceTabs" />
-      </Layout.Content>
+        </Layout.Header>
+        <Layout.Content className="content">{activeSection.content}</Layout.Content>
+      </Layout>
     </Layout>
   )
 }
