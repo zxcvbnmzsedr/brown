@@ -17,10 +17,10 @@ import {
   Building2,
   CreditCard,
   DollarSign,
+  Edit3,
   Hash,
   Landmark,
   Link,
-  ListChecks,
   LogOut,
   Plus,
   ReceiptText,
@@ -48,9 +48,27 @@ import type {
 
 const today = new Date().toISOString().slice(0, 10)
 
+function displayDate(value: string) {
+  return value.replace(/-/g, '/')
+}
+
+function addYears(value: string, years: number) {
+  const date = new Date(`${value}T00:00:00`)
+  date.setFullYear(date.getFullYear() + years)
+  return date.toISOString().slice(0, 10)
+}
+
+const defaultLedgerStartDate = addYears(today, -1)
+
+function csvCell(value: string | number | null | undefined) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`
+}
+
 type Composer = 'transaction' | 'cash' | 'investment' | 'asset'
-type ShortcutTarget = Composer | 'ledger' | 'distribution' | 'rebalance'
-type AppScreen = 'home' | 'instrument-search' | 'transaction-create' | 'platform-select'
+type FeatureScreen = 'distribution' | 'rebalance' | 'accounts' | 'quick-entry' | 'ledger'
+type ShortcutTarget = Composer | Exclude<FeatureScreen, 'accounts' | 'quick-entry'>
+type AppScreen = 'home' | FeatureScreen | 'instrument-search' | 'transaction-create' | 'platform-select'
+type TransactionMode = 'create' | 'edit'
 type TransactionDraft = {
   type: TransactionPayload['type']
   date: string
@@ -170,6 +188,12 @@ export default function App() {
   const [searchHistory, setSearchHistory] = useState<string[]>(['铂金9995', '贵州茅台', '黄金9999', '纳指ETF', '苹果'])
   const [selectedInstrument, setSelectedInstrument] = useState<Instrument | null>(null)
   const [transactionDraft, setTransactionDraft] = useState<TransactionDraft>(defaultTransactionDraft)
+  const [transactionMode, setTransactionMode] = useState<TransactionMode>('create')
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
+  const [transactionQuery, setTransactionQuery] = useState('')
+  const [transactionTypeFilter, setTransactionTypeFilter] = useState<'all' | TransactionPayload['type']>('all')
+  const [ledgerStartDate, setLedgerStartDate] = useState(defaultLedgerStartDate)
+  const [ledgerEndDate, setLedgerEndDate] = useState(today)
   const [instrumentLoading, setInstrumentLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -190,7 +214,26 @@ export default function App() {
   const holdingPnl = holdingRows.reduce((sum, holding) => sum + holding.market_value - holding.cost_basis, 0)
   const investmentScore = holdingPnl
   const feeTotal = transactions.reduce((sum, tx) => sum + tx.fee, 0)
-  const recentTransactions = transactions.slice(0, 8)
+  const filteredTransactions = transactions.filter((tx) => {
+    const query = transactionQuery.trim().toLowerCase()
+    const matchesType = transactionTypeFilter === 'all' || tx.type === transactionTypeFilter
+    const matchesStartDate = !ledgerStartDate || tx.date >= ledgerStartDate
+    const matchesEndDate = !ledgerEndDate || tx.date <= ledgerEndDate
+    if (!matchesType) return false
+    if (!matchesStartDate || !matchesEndDate) return false
+    if (!query) return true
+    return [tx.instrument_name, tx.instrument_code, tx.account_name, tx.cash_account_name, tx.note, tx.date]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query))
+  })
+  const ledgerBuyTotal = filteredTransactions
+    .filter((tx) => tx.type === 'buy')
+    .reduce((sum, tx) => sum + tx.amount, 0)
+  const ledgerSellTotal = filteredTransactions
+    .filter((tx) => tx.type === 'sell')
+    .reduce((sum, tx) => sum + tx.amount, 0)
+  const ledgerFeeTotal = filteredTransactions.reduce((sum, tx) => sum + tx.fee, 0)
+  const ledgerCashLinkedCount = filteredTransactions.filter((tx) => tx.cash_account_id !== null).length
   const displayedInstruments = instruments.slice(0, 12)
   const selectedInvestmentAccount = investmentAccounts.find((account) => String(account.id) === transactionDraft.accountId) ?? null
   const selectedInvestmentPlatform = investmentPlatforms.find((platform) => String(platform.id) === transactionDraft.platformId) ?? null
@@ -216,7 +259,6 @@ export default function App() {
 
   const shortcuts: ShortcutItem[] = [
     { label: '交易记录', target: 'ledger', icon: ReceiptText },
-    { label: '自定义', target: 'transaction', icon: Plus },
     { label: '变动趋势', disabled: true, icon: ChartNoAxesCombined },
     { label: '持仓分布', target: 'distribution', icon: ChartPie },
     { label: '再平衡', target: 'rebalance', icon: SlidersHorizontal },
@@ -314,13 +356,19 @@ export default function App() {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
+  function openFeaturePage(nextScreen: FeatureScreen) {
+    setScreen(nextScreen)
+    setError(null)
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }
+
   function openComposer(nextComposer: Composer) {
     if (nextComposer === 'transaction') {
       openInstrumentSearch()
       return
     }
     setActiveComposer(nextComposer)
-    window.setTimeout(() => scrollToSection('quick-entry'), 0)
+    openFeaturePage('quick-entry')
   }
 
   function updateTransactionDraft(next: Partial<TransactionDraft>) {
@@ -338,6 +386,8 @@ export default function App() {
     const keyword = instrument.name
     const defaultAccount = investmentAccounts[0] ?? null
     setSelectedInstrument(instrument)
+    setEditingTransaction(null)
+    setTransactionMode('create')
     setSearchHistory((current) => [keyword, ...current.filter((item) => item !== keyword)].slice(0, 8))
     setTransactionDraft({
       ...defaultTransactionDraft,
@@ -364,6 +414,19 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'auto' })
   }
 
+  function backFromTransactionForm() {
+    if (transactionMode === 'edit') {
+      setSelectedInstrument(null)
+      setEditingTransaction(null)
+      setTransactionMode('create')
+      setScreen('ledger')
+      setError(null)
+      window.scrollTo({ top: 0, behavior: 'auto' })
+      return
+    }
+    backToInstrumentSearch()
+  }
+
   function openPlatformSelect() {
     setPlatformQuery('')
     setError(null)
@@ -382,18 +445,96 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'auto' })
   }
 
+  function openTransactionEdit(tx: Transaction) {
+    const instrument = instruments.find((item) => item.id === tx.instrument_id) ?? {
+      id: tx.instrument_id,
+      type: 'stock',
+      code: tx.instrument_code,
+      name: tx.instrument_name,
+      exchange: null,
+      currency: 'CNY',
+      source: null,
+      latest_price: tx.price,
+      price_date: tx.date,
+      is_active: true,
+    } satisfies Instrument
+    setSelectedInstrument(instrument)
+    setEditingTransaction(tx)
+    setTransactionMode('edit')
+    setTransactionDraft({
+      type: tx.type,
+      date: tx.date,
+      qty: String(tx.qty),
+      price: String(tx.price),
+      fee: String(tx.fee),
+      note: tx.note ?? '',
+      accountId: tx.account_id ? String(tx.account_id) : '',
+      platformId: '',
+      cashAccountId: tx.cash_account_id ? String(tx.cash_account_id) : '',
+      linkCash: tx.cash_account_id !== null,
+    })
+    setError(null)
+    setScreen('transaction-create')
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }
+
+  function showTransactionDetail(tx: Transaction) {
+    const direction = tx.type === 'buy' ? '买入' : '卖出'
+    window.alert([
+      `${direction}: ${tx.instrument_name}`,
+      `数量: ${tx.qty}`,
+      `价格: ${money(tx.price)}`,
+      `金额: ${money(tx.amount)}`,
+      `日期: ${tx.date}`,
+      `投资账户: ${tx.account_name || '未绑定投资账户'}`,
+      `现金账户: ${tx.cash_account_name || '未联动现金'}`,
+      tx.note ? `备注: ${tx.note}` : '',
+    ].filter(Boolean).join('\n'))
+  }
+
+  function resetLedgerFilters() {
+    setTransactionQuery('')
+    setTransactionTypeFilter('all')
+    setLedgerStartDate(defaultLedgerStartDate)
+    setLedgerEndDate(today)
+  }
+
+  function exportTransactions() {
+    const header = ['名称', '代码', '类型', '数量', '价格', '金额', '交易日期', '投资账户', '现金账户', '备注']
+    const rows = filteredTransactions.map((tx) => [
+      tx.instrument_name,
+      tx.instrument_code ?? tx.instrument_id,
+      tx.type === 'buy' ? '买入' : '卖出',
+      tx.qty,
+      tx.price,
+      tx.amount,
+      tx.date,
+      tx.account_name ?? '',
+      tx.cash_account_name ?? '',
+      tx.note ?? '',
+    ])
+    const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n')
+    const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `brown-transactions-${today}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   function handleShortcut(item: ShortcutItem) {
     if (item.disabled || !item.target) return
     if (item.target === 'ledger') {
-      scrollToSection('ledger')
+      openFeaturePage('ledger')
       return
     }
     if (item.target === 'distribution') {
-      scrollToSection('distribution')
+      openFeaturePage('distribution')
       return
     }
     if (item.target === 'rebalance') {
-      scrollToSection('rebalance')
+      openFeaturePage('rebalance')
       return
     }
     openComposer(item.target)
@@ -480,10 +621,17 @@ export default function App() {
       fee: Number(transactionDraft.fee || 0),
       note: transactionDraft.note || null,
     }
-    await api.createTransaction(payload)
+    const nextScreen: AppScreen = transactionMode === 'edit' ? 'ledger' : 'home'
+    if (transactionMode === 'edit' && editingTransaction) {
+      await api.updateTransaction(editingTransaction.id, payload)
+    } else {
+      await api.createTransaction(payload)
+    }
     setSelectedInstrument(null)
+    setEditingTransaction(null)
+    setTransactionMode('create')
     setTransactionDraft(defaultTransactionDraft)
-    setScreen('home')
+    setScreen(nextScreen)
     await loadPortfolio(portfolioId)
   }
 
@@ -553,10 +701,10 @@ export default function App() {
       <main className="subpage-shell transaction-page">
         <div className="subpage-content">
           <header className="subpage-nav">
-            <button type="button" onClick={backToInstrumentSearch} aria-label="返回选择标的">
+            <button type="button" onClick={backFromTransactionForm} aria-label={transactionMode === 'edit' ? '返回交易记录' : '返回选择标的'}>
               <ArrowLeft size={28} />
             </button>
-            <h1>新增交易</h1>
+            <h1>{transactionMode === 'edit' ? '编辑交易' : '新增交易'}</h1>
             <button form="transaction-create-form" type="submit">保存</button>
           </header>
 
@@ -810,6 +958,421 @@ export default function App() {
     )
   }
 
+  if (screen === 'distribution') {
+    return (
+      <main className="subpage-shell feature-page distribution-page">
+        <div className="subpage-content">
+          <header className="subpage-nav">
+            <button type="button" onClick={backToHome} aria-label="返回首页">
+              <ArrowLeft size={28} />
+            </button>
+            <h1>持仓分布</h1>
+            <button type="button" onClick={() => void refresh()}>刷新</button>
+          </header>
+
+          {error ? <div className="alert">{error}</div> : null}
+
+          <section id="distribution" className="soft-card compact-panel">
+            <div className="panel-title-row">
+              <h2>持仓分布</h2>
+              <ChartPie size={20} />
+            </div>
+            <div className="distribution-body">
+              <div className="donut" style={mixDonutStyle} aria-label="资产分布">
+                <span>{totalValue > 0 ? percent(holdingsValue / totalValue) : '0.0%'}</span>
+                <small>持仓</small>
+              </div>
+              <div className="legend-list">
+                {assetMix.map((segment) => (
+                  <div key={segment.label} className="legend-row">
+                    <span className="legend-dot" style={{ '--dot-color': segment.color } as CSSProperties} />
+                    <span>{segment.label}</span>
+                    <strong>{money(segment.value)}</strong>
+                    <small>{totalValue > 0 ? percent(segment.value / totalValue) : '0.0%'}</small>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    )
+  }
+
+  if (screen === 'rebalance') {
+    return (
+      <main className="subpage-shell feature-page rebalance-page">
+        <div className="subpage-content">
+          <header className="subpage-nav">
+            <button type="button" onClick={backToHome} aria-label="返回首页">
+              <ArrowLeft size={28} />
+            </button>
+            <h1>再平衡</h1>
+            <button type="button" onClick={() => void refresh()}>刷新</button>
+          </header>
+
+          {error ? <div className="alert">{error}</div> : null}
+
+          <section id="rebalance" className="soft-card compact-panel">
+            <div className="panel-title-row">
+              <h2>再平衡</h2>
+              <SlidersHorizontal size={20} />
+            </div>
+            <div className="bucket-list">
+              {(snapshot?.buckets ?? []).map((bucket) => (
+                <div key={bucket.name} className="bucket-row">
+                  <div className="bucket-row-main">
+                    <span>{bucket.name}</span>
+                    <strong>{money(bucket.current_value)}</strong>
+                  </div>
+                  <div className="bucket-meter">
+                    <span className="bucket-meter-fill" style={{ '--bar-width': ratio(bucket.actual_weight) } as CSSProperties} />
+                    <span className="bucket-meter-target" style={{ '--target-left': ratio(bucket.target_weight) } as CSSProperties} />
+                  </div>
+                  <div className="bucket-row-meta">
+                    <small>当前 {percent(bucket.actual_weight)}</small>
+                    <small>目标 {percent(bucket.target_weight)}</small>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      </main>
+    )
+  }
+
+  if (screen === 'accounts') {
+    return (
+      <main className="subpage-shell feature-page accounts-page">
+        <div className="subpage-content">
+          <header className="subpage-nav">
+            <button type="button" onClick={backToHome} aria-label="返回首页">
+              <ArrowLeft size={28} />
+            </button>
+            <h1>资产账户</h1>
+            <button type="button" onClick={() => void refresh()}>刷新</button>
+          </header>
+
+          {error ? <div className="alert">{error}</div> : null}
+
+          <section id="accounts" className="soft-card compact-panel">
+            <div className="panel-title-row">
+              <h2>资产账户</h2>
+              <Landmark size={20} />
+            </div>
+            <div className="account-list">
+              {cashAccounts.map((account) => (
+                <div key={account.id} className="account-row">
+                  <span>{account.name}</span>
+                  <strong>{money(account.balance)}</strong>
+                  <small>{account.platform_name || '未绑定平台'}</small>
+                </div>
+              ))}
+              {investmentAccounts.map((account) => (
+                <div key={account.id} className="account-row">
+                  <span>{account.name}</span>
+                  <strong>{account.platform_name || '未绑定平台'}</strong>
+                  <small>{account.platform_type || 'investment'}</small>
+                </div>
+              ))}
+              {cashAccounts.length + investmentAccounts.length === 0 ? <div className="empty-state">暂无账户</div> : null}
+            </div>
+          </section>
+        </div>
+      </main>
+    )
+  }
+
+  if (screen === 'quick-entry') {
+    return (
+      <main className="subpage-shell feature-page quick-entry-page">
+        <div className="subpage-content">
+          <header className="subpage-nav">
+            <button type="button" onClick={backToHome} aria-label="返回首页">
+              <ArrowLeft size={28} />
+            </button>
+            <h1>快速录入</h1>
+            <button type="button" onClick={openInstrumentSearch}>交易</button>
+          </header>
+
+          {error ? <div className="alert">{error}</div> : null}
+
+          <section id="quick-entry" className="soft-card compact-panel">
+            <div className="panel-title-row">
+              <h2>快速录入</h2>
+              <ReceiptText size={20} />
+            </div>
+
+            <div className="composer-tabs" role="tablist" aria-label="录入类型">
+              <button
+                type="button"
+                className={activeComposer === 'transaction' ? 'active' : ''}
+                onClick={() => setActiveComposer('transaction')}
+              >
+                交易
+              </button>
+              <button
+                type="button"
+                className={activeComposer === 'asset' ? 'active' : ''}
+                onClick={() => setActiveComposer('asset')}
+              >
+                标的
+              </button>
+              <button
+                type="button"
+                className={activeComposer === 'cash' ? 'active' : ''}
+                onClick={() => setActiveComposer('cash')}
+              >
+                现金
+              </button>
+              <button
+                type="button"
+                className={activeComposer === 'investment' ? 'active' : ''}
+                onClick={() => setActiveComposer('investment')}
+              >
+                账户
+              </button>
+            </div>
+
+            {activeComposer === 'transaction' ? (
+              <button className="entry-launcher" type="button" onClick={openInstrumentSearch}>
+                <Search size={20} />
+                先选择标的，再新增交易
+                <ChevronRight size={20} />
+              </button>
+            ) : null}
+
+            {activeComposer === 'asset' ? (
+              <form className="inline-form asset-form" onSubmit={(event) => void submitUserAsset(event)}>
+                <select name="instrument" required defaultValue="" aria-label="配置标的">
+                  <option value="" disabled>标的</option>
+                  {instruments.map((instrument) => (
+                    <option key={instrument.id} value={instrument.id}>{instrument.name}</option>
+                  ))}
+                </select>
+                <select name="group" defaultValue="" aria-label="细分类">
+                  <option value="">细分类</option>
+                  {stockGroups.map((group) => (
+                    <option key={group.id} value={group.id}>{group.bucketName} / {group.name}</option>
+                  ))}
+                </select>
+                <select name="account" defaultValue="" aria-label="投资账户">
+                  <option value="">账户</option>
+                  {investmentAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>{account.name}</option>
+                  ))}
+                </select>
+                <input name="target_weight" type="number" min="0" max="1" step="0.01" placeholder="目标权重" aria-label="目标权重" />
+                <button type="submit"><Plus size={16} />添加</button>
+              </form>
+            ) : null}
+
+            {activeComposer === 'cash' ? (
+              <form className="inline-form cash-form" onSubmit={(event) => void submitCashAccount(event)}>
+                <input name="name" required placeholder="账户名称" aria-label="现金账户名称" />
+                <select name="platform" defaultValue="" aria-label="现金平台">
+                  <option value="">平台</option>
+                  {cashPlatforms.map((platform) => (
+                    <option key={platform.id} value={platform.id}>{platform.name}</option>
+                  ))}
+                </select>
+                <input name="balance" required type="number" step="0.01" placeholder="余额" aria-label="现金余额" />
+                <label className="checkline">
+                  <input name="include_in_rebalance" type="checkbox" defaultChecked />
+                  参与再平衡
+                </label>
+                <button type="submit"><Plus size={16} />新增</button>
+              </form>
+            ) : null}
+
+            {activeComposer === 'investment' ? (
+              <form className="inline-form investment-form" onSubmit={(event) => void submitInvestmentAccount(event)}>
+                <input name="name" required placeholder="账户名称" aria-label="投资账户名称" />
+                <select name="platform" required defaultValue="" aria-label="交易平台">
+                  <option value="" disabled>交易平台</option>
+                  {investmentPlatforms.map((platform) => (
+                    <option key={platform.id} value={platform.id}>{platform.name}</option>
+                  ))}
+                </select>
+                <button type="submit"><Plus size={16} />新增</button>
+              </form>
+            ) : null}
+          </section>
+        </div>
+
+        <button className="floating-add" type="button" onClick={openInstrumentSearch} aria-label="新增交易">
+          <Plus size={34} />
+        </button>
+      </main>
+    )
+  }
+
+  if (screen === 'ledger') {
+    return (
+      <main className="subpage-shell feature-page ledger-page">
+        <div className="subpage-content">
+          <header className="subpage-nav">
+            <button type="button" onClick={backToHome} aria-label="返回首页">
+              <ArrowLeft size={28} />
+            </button>
+            <h1>交易记录</h1>
+            <div className="subpage-nav-actions">
+              <button type="button" onClick={() => openFeaturePage('quick-entry')}>管理</button>
+              <button type="button" onClick={exportTransactions}>导出</button>
+            </div>
+          </header>
+
+          {error ? <div className="alert">{error}</div> : null}
+
+          <section id="ledger" className="ledger-workbench">
+            <div className="ledger-summary-grid" aria-label="交易记录摘要">
+              <div className="ledger-summary-card primary">
+                <small>筛选交易</small>
+                <strong>{filteredTransactions.length}</strong>
+                <span>共 {transactions.length} 条</span>
+              </div>
+              <div className="ledger-summary-card">
+                <small>买入金额</small>
+                <strong>{money(ledgerBuyTotal)}</strong>
+                <span>含费用</span>
+              </div>
+              <div className="ledger-summary-card">
+                <small>卖出回款</small>
+                <strong>{money(ledgerSellTotal)}</strong>
+                <span>扣费用</span>
+              </div>
+              <div className="ledger-summary-card">
+                <small>现金联动</small>
+                <strong>{ledgerCashLinkedCount}</strong>
+                <span>费用 {money(ledgerFeeTotal)}</span>
+              </div>
+            </div>
+
+            <div className="ledger-toolbar" aria-label="交易记录筛选">
+              <label className="ledger-search-box">
+                <Search size={22} />
+                <input
+                  value={transactionQuery}
+                  onChange={(event) => setTransactionQuery(event.target.value)}
+                  placeholder="搜索标的、代码、账户或备注"
+                  aria-label="搜索交易记录"
+                />
+              </label>
+
+              <div className="ledger-date-controls">
+                <label>
+                  <span>开始</span>
+                  <input
+                    type="date"
+                    value={ledgerStartDate}
+                    max={ledgerEndDate || undefined}
+                    onChange={(event) => setLedgerStartDate(event.target.value)}
+                    aria-label="交易开始日期"
+                  />
+                </label>
+                <label>
+                  <span>结束</span>
+                  <input
+                    type="date"
+                    value={ledgerEndDate}
+                    min={ledgerStartDate || undefined}
+                    onChange={(event) => setLedgerEndDate(event.target.value)}
+                    aria-label="交易结束日期"
+                  />
+                </label>
+              </div>
+
+              <div className="ledger-type-tabs" role="tablist" aria-label="交易类型筛选">
+                {(['all', 'buy', 'sell'] as const).map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    className={transactionTypeFilter === type ? 'active' : ''}
+                    onClick={() => setTransactionTypeFilter(type)}
+                    aria-pressed={transactionTypeFilter === type}
+                  >
+                    {type === 'all' ? '全部' : type === 'buy' ? '买入' : '卖出'}
+                  </button>
+                ))}
+              </div>
+
+              <button className="ledger-reset-button" type="button" onClick={resetLedgerFilters}>
+                重置
+              </button>
+            </div>
+
+            <div className="ledger-result-bar">
+              <span>{displayDate(ledgerStartDate)} - {displayDate(ledgerEndDate)}</span>
+              <strong>搜索到 {filteredTransactions.length} 条交易记录</strong>
+            </div>
+
+            <div className="ledger-table-head" aria-hidden="true">
+              <span>标的</span>
+              <span>交易</span>
+              <span>数量 / 价格</span>
+              <span>账户 / 现金</span>
+              <span>日期</span>
+              <span>操作</span>
+            </div>
+
+            <div className="ledger-list">
+              {filteredTransactions.length > 0 ? filteredTransactions.map((tx) => (
+                <article key={tx.id} className={`ledger-card ${tx.type}`}>
+                  <div className="ledger-card-grid">
+                    <div className="ledger-instrument">
+                      <strong>{tx.instrument_name}</strong>
+                      <small>
+                        <em>{tx.instrument_code ? 'CN' : 'ID'}</em>
+                        <span>{tx.instrument_code || tx.instrument_id}</span>
+                      </small>
+                    </div>
+
+                    <div className="ledger-trade">
+                      <strong className={`ledger-type ${tx.type === 'buy' ? 'buy' : 'sell'}`}>
+                        {tx.type === 'buy' ? '买入' : '卖出'}
+                      </strong>
+                      <span>{money(tx.amount)}</span>
+                    </div>
+
+                    <div className="ledger-number">
+                      <strong>{tx.qty}</strong>
+                      <small>{money(tx.price)}</small>
+                    </div>
+
+                    <div className="ledger-account">
+                      <strong>{tx.account_name || '未绑定投资账户'}</strong>
+                      <small>{tx.cash_account_name || '未联动现金'}</small>
+                    </div>
+
+                    <time dateTime={tx.date}>{displayDate(tx.date)}</time>
+
+                    <div className="ledger-card-actions">
+                      <button type="button" onClick={() => showTransactionDetail(tx)} aria-label={`查看 ${tx.instrument_name} 交易详情`}>
+                        <CircleHelp size={18} />
+                        详情
+                      </button>
+                      <button type="button" onClick={() => openTransactionEdit(tx)} aria-label={`编辑 ${tx.instrument_name} 交易`}>
+                        <Edit3 size={18} />
+                        编辑
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              )) : (
+                <div className="ledger-empty-state">
+                  <ReceiptText size={30} />
+                  <strong>暂无匹配交易记录</strong>
+                  <span>调整搜索、日期或买卖类型后再查看。</span>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="app-home">
       <div className="mobile-shell">
@@ -958,199 +1521,6 @@ export default function App() {
           </div>
         </section>
 
-        <section id="distribution" className="soft-card compact-panel">
-          <div className="panel-title-row">
-            <h2>持仓分布</h2>
-            <ChartPie size={20} />
-          </div>
-          <div className="distribution-body">
-            <div className="donut" style={mixDonutStyle} aria-label="资产分布">
-              <span>{totalValue > 0 ? percent(holdingsValue / totalValue) : '0.0%'}</span>
-              <small>持仓</small>
-            </div>
-            <div className="legend-list">
-              {assetMix.map((segment) => (
-                <div key={segment.label} className="legend-row">
-                  <span className="legend-dot" style={{ '--dot-color': segment.color } as CSSProperties} />
-                  <span>{segment.label}</span>
-                  <strong>{money(segment.value)}</strong>
-                  <small>{totalValue > 0 ? percent(segment.value / totalValue) : '0.0%'}</small>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section id="rebalance" className="soft-card compact-panel">
-          <div className="panel-title-row">
-            <h2>再平衡</h2>
-            <SlidersHorizontal size={20} />
-          </div>
-          <div className="bucket-list">
-            {(snapshot?.buckets ?? []).map((bucket) => (
-              <div key={bucket.name} className="bucket-row">
-                <div className="bucket-row-main">
-                  <span>{bucket.name}</span>
-                  <strong>{money(bucket.current_value)}</strong>
-                </div>
-                <div className="bucket-meter">
-                  <span className="bucket-meter-fill" style={{ '--bar-width': ratio(bucket.actual_weight) } as CSSProperties} />
-                  <span className="bucket-meter-target" style={{ '--target-left': ratio(bucket.target_weight) } as CSSProperties} />
-                </div>
-                <div className="bucket-row-meta">
-                  <small>当前 {percent(bucket.actual_weight)}</small>
-                  <small>目标 {percent(bucket.target_weight)}</small>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section id="accounts" className="soft-card compact-panel">
-          <div className="panel-title-row">
-            <h2>资产账户</h2>
-            <Landmark size={20} />
-          </div>
-          <div className="account-list">
-            {cashAccounts.map((account) => (
-              <div key={account.id} className="account-row">
-                <span>{account.name}</span>
-                <strong>{money(account.balance)}</strong>
-                <small>{account.platform_name || '未绑定平台'}</small>
-              </div>
-            ))}
-            {investmentAccounts.map((account) => (
-              <div key={account.id} className="account-row">
-                <span>{account.name}</span>
-                <strong>{account.platform_name || '未绑定平台'}</strong>
-                <small>{account.platform_type || 'investment'}</small>
-              </div>
-            ))}
-            {cashAccounts.length + investmentAccounts.length === 0 ? <div className="empty-state">暂无账户</div> : null}
-          </div>
-        </section>
-
-        <section id="quick-entry" className="soft-card compact-panel">
-          <div className="panel-title-row">
-            <h2>快速录入</h2>
-            <ReceiptText size={20} />
-          </div>
-
-          <div className="composer-tabs" role="tablist" aria-label="录入类型">
-            <button
-              type="button"
-              className={activeComposer === 'transaction' ? 'active' : ''}
-              onClick={() => setActiveComposer('transaction')}
-            >
-              交易
-            </button>
-            <button
-              type="button"
-              className={activeComposer === 'asset' ? 'active' : ''}
-              onClick={() => setActiveComposer('asset')}
-            >
-              标的
-            </button>
-            <button
-              type="button"
-              className={activeComposer === 'cash' ? 'active' : ''}
-              onClick={() => setActiveComposer('cash')}
-            >
-              现金
-            </button>
-            <button
-              type="button"
-              className={activeComposer === 'investment' ? 'active' : ''}
-              onClick={() => setActiveComposer('investment')}
-            >
-              账户
-            </button>
-          </div>
-
-          {activeComposer === 'transaction' ? (
-            <button className="entry-launcher" type="button" onClick={openInstrumentSearch}>
-              <Search size={20} />
-              先选择标的，再新增交易
-              <ChevronRight size={20} />
-            </button>
-          ) : null}
-
-          {activeComposer === 'asset' ? (
-            <form className="inline-form asset-form" onSubmit={(event) => void submitUserAsset(event)}>
-              <select name="instrument" required defaultValue="" aria-label="配置标的">
-                <option value="" disabled>标的</option>
-                {instruments.map((instrument) => (
-                  <option key={instrument.id} value={instrument.id}>{instrument.name}</option>
-                ))}
-              </select>
-              <select name="group" defaultValue="" aria-label="细分类">
-                <option value="">细分类</option>
-                {stockGroups.map((group) => (
-                  <option key={group.id} value={group.id}>{group.bucketName} / {group.name}</option>
-                ))}
-              </select>
-              <select name="account" defaultValue="" aria-label="投资账户">
-                <option value="">账户</option>
-                {investmentAccounts.map((account) => (
-                  <option key={account.id} value={account.id}>{account.name}</option>
-                ))}
-              </select>
-              <input name="target_weight" type="number" min="0" max="1" step="0.01" placeholder="目标权重" aria-label="目标权重" />
-              <button type="submit"><Plus size={16} />添加</button>
-            </form>
-          ) : null}
-
-          {activeComposer === 'cash' ? (
-            <form className="inline-form cash-form" onSubmit={(event) => void submitCashAccount(event)}>
-              <input name="name" required placeholder="账户名称" aria-label="现金账户名称" />
-              <select name="platform" defaultValue="" aria-label="现金平台">
-                <option value="">平台</option>
-                {cashPlatforms.map((platform) => (
-                  <option key={platform.id} value={platform.id}>{platform.name}</option>
-                ))}
-              </select>
-              <input name="balance" required type="number" step="0.01" placeholder="余额" aria-label="现金余额" />
-              <label className="checkline">
-                <input name="include_in_rebalance" type="checkbox" defaultChecked />
-                参与再平衡
-              </label>
-              <button type="submit"><Plus size={16} />新增</button>
-            </form>
-          ) : null}
-
-          {activeComposer === 'investment' ? (
-            <form className="inline-form investment-form" onSubmit={(event) => void submitInvestmentAccount(event)}>
-              <input name="name" required placeholder="账户名称" aria-label="投资账户名称" />
-              <select name="platform" required defaultValue="" aria-label="交易平台">
-                <option value="" disabled>交易平台</option>
-                {investmentPlatforms.map((platform) => (
-                  <option key={platform.id} value={platform.id}>{platform.name}</option>
-                ))}
-              </select>
-              <button type="submit"><Plus size={16} />新增</button>
-            </form>
-          ) : null}
-        </section>
-
-        <section id="ledger" className="soft-card compact-panel ledger-panel">
-          <div className="panel-title-row">
-            <h2>交易记录</h2>
-            <ListChecks size={20} />
-          </div>
-          <div className="transaction-list">
-            {recentTransactions.length > 0 ? recentTransactions.map((tx) => (
-              <div key={tx.id} className="transaction-row">
-                <div>
-                  <span>{tx.instrument_name}</span>
-                  <small>{tx.account_name || '未绑定投资账户'} · {tx.cash_account_name || '未联动现金'}</small>
-                </div>
-                <strong>{tx.type === 'buy' ? '买入' : '卖出'} {money(tx.amount)}</strong>
-              </div>
-            )) : (
-              <div className="empty-state">暂无交易流水</div>
-            )}
-          </div>
-        </section>
       </div>
 
       <button className="floating-add" type="button" onClick={openInstrumentSearch} aria-label="新增交易">
@@ -1162,7 +1532,7 @@ export default function App() {
           <ChartPie size={22} />
           <span>持仓</span>
         </button>
-        <button type="button" onClick={() => scrollToSection('accounts')}>
+        <button type="button" onClick={() => openFeaturePage('accounts')}>
           <WalletCards size={22} />
           <span>资产</span>
         </button>

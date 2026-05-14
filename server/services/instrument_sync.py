@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from server.models import Instrument, InstrumentImportJob
-from server.services.price_fetcher import normalize_code, normalize_exchange
+from server.services.price_fetcher import detect_cn_fund_exchange, is_cn_exchange_traded_fund_code, normalize_code, normalize_exchange
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ class AkshareFundProvider:
                     name=name,
                     type=_fund_instrument_type(name, normalized_code),
                     code=normalized_code,
-                    exchange=None,
+                    exchange=detect_cn_fund_exchange(normalized_code),
                     currency="CNY",
                     source=self.source,
                 )
@@ -218,13 +218,19 @@ def upsert_synced_instrument(db: Session, payload: InstrumentSyncPayload) -> tup
     code = normalize_code(payload.code)
     if not code:
         raise ValueError("synced instrument code is required")
-    exchange = normalize_exchange(payload.exchange)
+    exchange = normalize_exchange(payload.exchange) or detect_cn_fund_exchange(code)
     currency = payload.currency.upper().strip() or "CNY"
     instrument = db.scalars(
         select(Instrument)
         .where(Instrument.code == code, Instrument.exchange == exchange)
         .limit(1)
     ).first()
+    if instrument is None and exchange is not None:
+        instrument = db.scalars(
+            select(Instrument)
+            .where(Instrument.code == code, Instrument.exchange.is_(None))
+            .limit(1)
+        ).first()
     inserted = instrument is None
     if instrument is None:
         instrument = Instrument(
@@ -280,6 +286,6 @@ def _cn_exchange(code: str) -> str | None:
 def _fund_instrument_type(name: str, code: str) -> str:
     if "黄金" in name:
         return "gold"
-    if code.startswith(("51", "15", "16")):
+    if is_cn_exchange_traded_fund_code(code):
         return "etf"
     return "fund"

@@ -37,7 +37,9 @@ from server.services.portfolio import latest_price_record_for_instrument
 from server.services.price_fetcher import (
     PriceFetcher,
     configured_price_target_count,
+    detect_cn_fund_exchange,
     detect_cn_exchange,
+    is_cn_exchange_traded_fund_code,
     normalize_code,
     normalize_exchange,
     parse_price,
@@ -76,7 +78,7 @@ def get_platform_or_404(db: Session, platform_id: int) -> TradingPlatform:
 
 def normalize_instrument(instrument: Instrument) -> None:
     instrument.code = normalize_code(instrument.code)
-    instrument.exchange = normalize_exchange(instrument.exchange) or detect_cn_exchange(instrument.code)
+    instrument.exchange = normalize_exchange(instrument.exchange) or detect_cn_fund_exchange(instrument.code) or detect_cn_exchange(instrument.code)
     instrument.currency = instrument.currency.upper().strip() or "CNY"
 
 
@@ -231,7 +233,7 @@ def create_instrument_sync_jobs(
 def _instrument_type_from_record(name: str, code: str | None) -> str:
     if "黄金" in name:
         return "gold"
-    if code and code.startswith(("51", "15", "16")):
+    if is_cn_exchange_traded_fund_code(code):
         return "etf"
     if code and code.startswith(("0", "1", "5")):
         return "fund"
@@ -246,7 +248,7 @@ def _append_akshare_records(query: str, records: list[dict], results: list[dict]
         name = str(record.get("名称") or record.get("基金简称") or record.get("name") or "").strip()
         if not code or not name:
             continue
-        exchange = normalize_exchange(str(record.get("市场") or "")) or detect_cn_exchange(code)
+        exchange = normalize_exchange(str(record.get("市场") or "")) or detect_cn_fund_exchange(code) or detect_cn_exchange(code)
         key = f"{exchange or ''}:{code}:{name}"
         if key in seen:
             continue

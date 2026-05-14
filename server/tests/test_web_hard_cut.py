@@ -301,6 +301,89 @@ def test_instrument_sync_job_upserts_provider_results():
     cleanup_test_db()
 
 
+def test_fund_sync_classifies_exchange_traded_funds_and_open_funds():
+    reset_test_db()
+
+    class FakeProvider:
+        source = "akshare_fund"
+        market = "CN"
+
+        def fetch(self):
+            return [
+                InstrumentSyncPayload(name="30年国债ETF鹏扬", type="etf", code="511090", exchange=None, source=self.source),
+                InstrumentSyncPayload(name="短融ETF海富通", type="etf", code="511360", exchange=None, source=self.source),
+                InstrumentSyncPayload(name="A500ETF华泰柏瑞", type="etf", code="563360", exchange=None, source=self.source),
+                InstrumentSyncPayload(name="银华价值优选混合", type="fund", code="519001", exchange=None, source=self.source),
+            ]
+
+    with TestClient(app):
+        with SessionLocal() as db:
+            jobs = instrument_sync.create_instrument_sync_jobs(db, {"akshare_fund"}, providers=[FakeProvider()])
+            db.commit()
+            instrument_sync.run_instrument_sync_job(db, jobs[0].id, providers=[FakeProvider()])
+
+            instruments = db.scalars(select(Instrument).order_by(Instrument.code)).all()
+            assert [(item.code, item.type, item.exchange) for item in instruments] == [
+                ("511090", "etf", "SH"),
+                ("511360", "etf", "SH"),
+                ("519001", "fund", None),
+                ("563360", "etf", "SH"),
+            ]
+
+    cleanup_test_db()
+
+
+def test_akshare_fund_provider_classifies_domestic_fund_codes(monkeypatch):
+    def fund_name_em():
+        return FakeFrame(
+            [
+                {"基金代码": "511090", "基金简称": "30年国债ETF鹏扬"},
+                {"基金代码": "511360", "基金简称": "短融ETF海富通"},
+                {"基金代码": "563360", "基金简称": "A500ETF华泰柏瑞"},
+                {"基金代码": "519001", "基金简称": "银华价值优选混合"},
+            ]
+        )
+
+    monkeypatch.setitem(sys.modules, "akshare", SimpleNamespace(fund_name_em=fund_name_em))
+
+    payloads = instrument_sync.AkshareFundProvider().fetch()
+
+    assert [(item.code, item.type, item.exchange) for item in payloads] == [
+        ("511090", "etf", "SH"),
+        ("511360", "etf", "SH"),
+        ("563360", "etf", "SH"),
+        ("519001", "fund", None),
+    ]
+
+
+def test_fund_sync_updates_existing_exchange_traded_fund_without_duplicate():
+    reset_test_db()
+
+    class FakeProvider:
+        source = "akshare_fund"
+        market = "CN"
+
+        def fetch(self):
+            return [InstrumentSyncPayload(name="30年国债ETF鹏扬", type="etf", code="511090", exchange=None, source=self.source)]
+
+    with TestClient(app):
+        with SessionLocal() as db:
+            db.add(Instrument(name="30年国债ETF鹏扬", type="etf", code="511090", exchange=None, currency="CNY", source="akshare_fund"))
+            db.commit()
+
+            jobs = instrument_sync.create_instrument_sync_jobs(db, {"akshare_fund"}, providers=[FakeProvider()])
+            db.commit()
+            job = instrument_sync.run_instrument_sync_job(db, jobs[0].id, providers=[FakeProvider()])
+
+            instruments = db.scalars(select(Instrument).where(Instrument.code == "511090")).all()
+            assert job.inserted_count == 0
+            assert job.updated_count == 1
+            assert len(instruments) == 1
+            assert instruments[0].exchange == "SH"
+
+    cleanup_test_db()
+
+
 def test_cn_stock_price_fetch_does_not_fallback_to_name_after_code_source_failure():
     class FakePriceFetcher(PriceFetcher):
         def __init__(self) -> None:
@@ -510,13 +593,62 @@ def test_akshare_daily_price_providers_parse_close_and_nav_dates(monkeypatch):
     assert calls == [
         (
             "stock",
-            {"symbol": "600000", "period": "daily", "start_date": "20260512", "end_date": "20260512", "adjust": ""},
+            {"symbol": "600000", "period": "daily", "start_date": "20260502", "end_date": "20260512", "adjust": ""},
         ),
         (
             "etf",
-            {"symbol": "510300", "period": "daily", "start_date": "20260512", "end_date": "20260512", "adjust": ""},
+            {"symbol": "510300", "period": "daily", "start_date": "20260502", "end_date": "20260512", "adjust": ""},
         ),
         ("fund", {"symbol": "110022", "indicator": "单位净值走势"}),
+    ]
+
+
+def test_exchange_traded_fund_daily_price_uses_exchange_codes_without_saved_exchange(monkeypatch):
+    calls: list[tuple[str, dict]] = []
+
+    def fund_etf_hist_em(**kwargs):
+        calls.append(("etf", kwargs))
+        symbol = kwargs["symbol"]
+        if symbol == "511090":
+            return FakeFrame([{"日期": "2026-05-11", "收盘": "115.42"}, {"日期": "2026-05-13", "收盘": "115.79"}])
+        if symbol == "511360":
+            return FakeFrame([{"日期": "2026-05-12", "收盘": "113.45"}])
+        raise AssertionError(f"unexpected ETF symbol: {symbol}")
+
+    def fund_open_fund_info_em(**kwargs):
+        calls.append(("fund", kwargs))
+        return FakeFrame([{"净值日期": "2026-05-13", "单位净值": "9.99"}])
+
+    monkeypatch.setitem(
+        sys.modules,
+        "akshare",
+        SimpleNamespace(fund_etf_hist_em=fund_etf_hist_em, fund_open_fund_info_em=fund_open_fund_info_em),
+    )
+
+    fetcher = PriceFetcher()
+    bond_etf = Instrument(id=11, name="30年国债ETF鹏扬", type="etf", code="511090", exchange=None, currency="CNY")
+    short_bond_etf = Instrument(id=12, name="短融ETF海富通", type="etf", code="511360", exchange=None, currency="CNY")
+    open_fund = Instrument(id=13, name="银华价值优选混合", type="fund", code="519001", exchange=None, currency="CNY")
+
+    assert asyncio.run(fetcher.fetch_instrument_daily_price(bond_etf, date(2026, 5, 14))) == price_fetcher_module.FetchedPrice(
+        11, date(2026, 5, 13), 115.79, "CNY", "akshare_fund_etf_hist_em"
+    )
+    assert asyncio.run(fetcher.fetch_instrument_daily_price(short_bond_etf, date(2026, 5, 14))) == price_fetcher_module.FetchedPrice(
+        12, date(2026, 5, 12), 113.45, "CNY", "akshare_fund_etf_hist_em"
+    )
+    assert asyncio.run(fetcher.fetch_instrument_daily_price(open_fund, date(2026, 5, 14))) == price_fetcher_module.FetchedPrice(
+        13, date(2026, 5, 13), 9.99, "CNY", "akshare_fund_open_fund_info_em"
+    )
+    assert calls == [
+        (
+            "etf",
+            {"symbol": "511090", "period": "daily", "start_date": "20260504", "end_date": "20260514", "adjust": ""},
+        ),
+        (
+            "etf",
+            {"symbol": "511360", "period": "daily", "start_date": "20260504", "end_date": "20260514", "adjust": ""},
+        ),
+        ("fund", {"symbol": "519001", "indicator": "单位净值走势"}),
     ]
 
 
@@ -548,9 +680,9 @@ def test_yfinance_provider_derives_market_tickers_and_uses_close(monkeypatch):
         9, date(2026, 5, 12), 456.7, "CNY", "yfinance"
     )
     assert calls == [
-        ("0700.HK", "2026-05-12", "2026-05-13"),
-        ("600519.SS", "2026-05-12", "2026-05-13"),
-        ("000001.SZ", "2026-05-12", "2026-05-13"),
+        ("0700.HK", "2026-05-02", "2026-05-13"),
+        ("600519.SS", "2026-05-02", "2026-05-13"),
+        ("000001.SZ", "2026-05-02", "2026-05-13"),
     ]
 
 

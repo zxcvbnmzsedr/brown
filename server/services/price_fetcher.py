@@ -21,6 +21,40 @@ EASTMONEY_FUND_URL = "https://fundgz.1234567.com.cn/js/{code}.js"
 EASTMONEY_STOCK_URL = "https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids={secid}&fields=f12,f13,f14,f2"
 EASTMONEY_SEARCH_URL = "https://searchapi.eastmoney.com/api/suggest/get"
 EASTMONEY_SEARCH_TOKEN = "44c9d251add88e27b65ed86506f6e5da"
+PRICE_LOOKBACK_DAYS = 10
+
+CN_EXCHANGE_TRADED_FUND_SH_PREFIXES = (
+    "501",
+    "502",
+    "510",
+    "511",
+    "512",
+    "513",
+    "515",
+    "516",
+    "517",
+    "518",
+    "560",
+    "561",
+    "562",
+    "563",
+    "588",
+    "589",
+)
+CN_EXCHANGE_TRADED_FUND_SZ_PREFIXES = (
+    "159",
+    "160",
+    "161",
+    "162",
+    "163",
+    "164",
+    "165",
+    "166",
+    "167",
+    "168",
+    "169",
+)
+CN_EXCHANGE_TRADED_FUND_PREFIXES = CN_EXCHANGE_TRADED_FUND_SH_PREFIXES + CN_EXCHANGE_TRADED_FUND_SZ_PREFIXES
 
 
 @dataclass(frozen=True)
@@ -66,6 +100,22 @@ def detect_cn_exchange(code: str | None) -> str | None:
     if normalized.startswith(("0", "1", "2", "3")):
         return "SZ"
     return None
+
+
+def detect_cn_fund_exchange(code: str | None) -> str | None:
+    normalized = normalize_code(code)
+    if not normalized or not _is_cn_market_code(normalized):
+        return None
+    if normalized.startswith(CN_EXCHANGE_TRADED_FUND_SH_PREFIXES):
+        return "SH"
+    if normalized.startswith(CN_EXCHANGE_TRADED_FUND_SZ_PREFIXES):
+        return "SZ"
+    return None
+
+
+def is_cn_exchange_traded_fund_code(code: str | None) -> bool:
+    normalized = normalize_code(code)
+    return bool(normalized and _is_cn_market_code(normalized) and normalized.startswith(CN_EXCHANGE_TRADED_FUND_PREFIXES))
 
 
 def _is_cn_market_code(code: str | None) -> bool:
@@ -288,11 +338,12 @@ class PriceFetcher:
             import akshare as ak
 
             target = target_date.strftime("%Y%m%d")
+            start = (target_date - timedelta(days=PRICE_LOOKBACK_DAYS)).strftime("%Y%m%d")
             frame = await asyncio.to_thread(
                 ak.stock_zh_a_hist,
                 symbol=code,
                 period="daily",
-                start_date=target,
+                start_date=start,
                 end_date=target,
                 adjust="",
             )
@@ -315,11 +366,12 @@ class PriceFetcher:
             import akshare as ak
 
             target = target_date.strftime("%Y%m%d")
+            start = (target_date - timedelta(days=PRICE_LOOKBACK_DAYS)).strftime("%Y%m%d")
             frame = await asyncio.to_thread(
                 ak.fund_etf_hist_em,
                 symbol=code,
                 period="daily",
-                start_date=target,
+                start_date=start,
                 end_date=target,
                 adjust="",
             )
@@ -371,7 +423,7 @@ class PriceFetcher:
 
             frame = await asyncio.to_thread(
                 yf.Ticker(ticker).history,
-                start=target_date.isoformat(),
+                start=(target_date - timedelta(days=PRICE_LOOKBACK_DAYS)).isoformat(),
                 end=(target_date + timedelta(days=1)).isoformat(),
             )
         except Exception as exc:
@@ -414,7 +466,7 @@ class PriceFetcher:
         code = (instrument.code or "").strip().upper()
         if not code:
             return None
-        exchange = normalize_exchange(instrument.exchange)
+        exchange = normalize_exchange(instrument.exchange) or detect_cn_exchange(code)
         if exchange == "HK":
             return code if code.endswith(".HK") else f"{code.zfill(4)}.HK"
         if exchange == "SH":
@@ -486,7 +538,9 @@ class PriceFetcher:
 
     async def fetch_instrument_daily_price(self, instrument: Instrument, target_date: date) -> FetchedPrice | None:
         code = normalize_code(instrument.code)
-        exchange = normalize_exchange(instrument.exchange) or detect_cn_exchange(code)
+        fund_exchange = detect_cn_fund_exchange(code)
+        exchange = normalize_exchange(instrument.exchange) or fund_exchange or detect_cn_exchange(code)
+        is_exchange_traded_fund = is_cn_exchange_traded_fund_code(code)
 
         if instrument.type == "stock":
             if _is_cn_market_code(code) and exchange in {"SH", "SZ"}:
@@ -494,7 +548,11 @@ class PriceFetcher:
                 return cn_price or await self.fetch_yfinance_daily_price(instrument, target_date)
             return await self.fetch_yfinance_daily_price(instrument, target_date)
 
-        if instrument.type in {"etf", "gold", "bond"} and _is_cn_market_code(code) and exchange in {"SH", "SZ"}:
+        if (
+            (instrument.type in {"etf", "gold", "bond"} or is_exchange_traded_fund)
+            and _is_cn_market_code(code)
+            and exchange in {"SH", "SZ"}
+        ):
             cn_price = await self.fetch_cn_etf_daily_price(instrument, target_date)
             return cn_price or await self.fetch_yfinance_daily_price(instrument, target_date)
 
