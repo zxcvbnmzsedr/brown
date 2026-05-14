@@ -90,7 +90,7 @@ export const api = {
   listPortfolios: () => request<Portfolio[]>('/portfolios'),
   getSnapshot: (portfolioId: number) => request<PortfolioSnapshot>(`/portfolios/${portfolioId}/snapshot`),
 
-  listInstruments: (q?: string) => request<Instrument[]>(`/instruments${toQuery({ q })}`),
+  listInstruments: (q?: string, limit = 20) => request<Instrument[]>(`/instruments${toQuery({ q, limit })}`),
   listTradingPlatforms: (usage?: 'investment' | 'cash') =>
     request<TradingPlatform[]>(`/trading-platforms${toQuery({ usage })}`),
 

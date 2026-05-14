@@ -359,6 +359,8 @@ class TransactionRead(TransactionBase):
 class SnapshotHolding(BaseModel):
     user_asset_id: int
     instrument_id: int
+    instrument_code: str | None = None
+    instrument_exchange: str | None = None
     name: str
     bucket_name: str | None = None
     group_name: str | None = None

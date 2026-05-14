@@ -3,13 +3,12 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from server.auth import CurrentUser
 from server.db import get_db
-from server.models import Instrument, TradingPlatform
-from server.routers.admin import instrument_response
+from server.models import Instrument, InstrumentPrice, TradingPlatform
 from server.schemas import InstrumentRead, TradingPlatformRead
 
 router = APIRouter(tags=["catalog"])
@@ -23,6 +22,7 @@ def list_public_instruments(
     _current_user: CurrentUser,
     q: str | None = None,
     instrument_type: str | None = None,
+    limit: int = 20,
 ):
     statement = select(Instrument).where(Instrument.is_active == True)
     if instrument_type:
@@ -30,8 +30,39 @@ def list_public_instruments(
     if q and q.strip():
         pattern = f"%{q.strip()}%"
         statement = statement.where(or_(Instrument.name.ilike(pattern), Instrument.code.ilike(pattern)))
-    instruments = db.scalars(statement.order_by(Instrument.id)).all()
-    return [instrument_response(db, instrument) for instrument in instruments]
+    safe_limit = min(max(limit, 1), 50)
+    instruments = db.scalars(statement.order_by(Instrument.id).limit(safe_limit)).all()
+
+    instrument_ids = [instrument.id for instrument in instruments]
+    latest_prices: dict[int, InstrumentPrice] = {}
+    if instrument_ids:
+        latest_price_dates = (
+            select(InstrumentPrice.instrument_id, func.max(InstrumentPrice.date).label("date"))
+            .where(InstrumentPrice.instrument_id.in_(instrument_ids))
+            .group_by(InstrumentPrice.instrument_id)
+            .subquery()
+        )
+        price_rows = db.execute(
+            select(InstrumentPrice)
+            .join(
+                latest_price_dates,
+                (InstrumentPrice.instrument_id == latest_price_dates.c.instrument_id)
+                & (InstrumentPrice.date == latest_price_dates.c.date),
+            )
+            .order_by(InstrumentPrice.instrument_id, InstrumentPrice.id.desc())
+        ).scalars().all()
+        for price in price_rows:
+            latest_prices.setdefault(price.instrument_id, price)
+
+    return [
+        InstrumentRead.model_validate(instrument).model_copy(
+            update={
+                "latest_price": latest_prices[instrument.id].price if instrument.id in latest_prices else None,
+                "price_date": latest_prices[instrument.id].date if instrument.id in latest_prices else None,
+            }
+        )
+        for instrument in instruments
+    ]
 
 
 @router.get("/trading-platforms", response_model=list[TradingPlatformRead])

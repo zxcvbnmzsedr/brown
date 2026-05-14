@@ -177,6 +177,8 @@ def build_snapshot(db: Session, user_id: int, portfolio_id: int) -> PortfolioSna
             SnapshotHolding(
                 user_asset_id=asset.id,
                 instrument_id=asset.instrument_id,
+                instrument_code=asset.instrument.code,
+                instrument_exchange=asset.instrument.exchange,
                 name=asset.display_name or asset.instrument.name,
                 bucket_name=bucket_name,
                 group_name=asset.group.name if asset.group else None,

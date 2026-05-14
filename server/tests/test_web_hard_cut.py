@@ -194,21 +194,67 @@ def test_admin_can_seed_common_trading_platforms():
         headers = admin_headers(client)
         seeded = client.post("/admin/trading-platforms/seed-defaults", headers=headers)
         assert seeded.status_code == 200
-        assert seeded.json()["inserted_count"] == 15
+        assert seeded.json()["inserted_count"] == 30
         assert seeded.json()["updated_count"] == 0
 
         reseeded = client.post("/admin/trading-platforms/seed-defaults", headers=headers)
         assert reseeded.status_code == 200
         assert reseeded.json()["inserted_count"] == 0
-        assert reseeded.json()["updated_count"] == 15
+        assert reseeded.json()["updated_count"] == 30
 
         platforms = client.get("/admin/trading-platforms", headers=headers)
         assert platforms.status_code == 200
         names = [item["name"] for item in platforms.json()]
-        assert names[:4] == ["华泰证券", "中信证券", "招商证券", "东方财富证券"]
+        assert names[:4] == ["招商银行", "华泰证券", "中信证券", "招商证券"]
         assert "天天基金" in names
-        assert "招商银行" in names
+        assert "京东肯特瑞基金" in names
+        assert "腾讯腾安基金" in names
         assert "支付宝余额宝" in names
+
+    cleanup_test_db()
+
+
+def test_public_instruments_are_limited_and_include_latest_price():
+    reset_test_db()
+
+    with TestClient(app) as client:
+        admin = admin_headers(client)
+        user = user_headers(client)
+        target_id = None
+        for index in range(30):
+            code = f"{600000 + index}"
+            name = "贵州茅台" if index == 25 else f"测试标的{index:02d}"
+            created = client.post(
+                "/admin/instruments",
+                headers=admin,
+                json={
+                    "name": name,
+                    "type": "stock",
+                    "code": code,
+                    "exchange": "SH",
+                    "currency": "CNY",
+                    "source": "manual",
+                    "is_active": True,
+                },
+            )
+            assert created.status_code == 201
+            instrument_id = created.json()["id"]
+            if name == "贵州茅台":
+                target_id = instrument_id
+                assert client.put(
+                    "/admin/instrument-prices/manual",
+                    headers=admin,
+                    json={"instrument_id": instrument_id, "price": 1888.8, "date": TODAY},
+                ).status_code == 200
+
+        instruments = client.get("/instruments", headers=user)
+        assert instruments.status_code == 200
+        assert len(instruments.json()) == 20
+
+        searched = client.get("/instruments?q=茅台", headers=user)
+        assert searched.status_code == 200
+        assert searched.json()[0]["id"] == target_id
+        assert searched.json()[0]["latest_price"] == 1888.8
 
     cleanup_test_db()
 
@@ -684,6 +730,9 @@ def test_user_flow_uses_global_instrument_and_cash_account_adjustments():
         assert body["total_value"] == 10099
         assert body["holdings"][0]["quantity"] == 100
         assert body["holdings"][0]["bucket_name"] == "股票"
+        assert body["holdings"][0]["instrument_id"] == instrument_id
+        assert body["holdings"][0]["instrument_code"] == "510300"
+        assert body["holdings"][0]["instrument_exchange"] == "SH"
 
         edited = client.put(
             f"/transactions/{tx_id}",

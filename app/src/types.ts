@@ -161,6 +161,8 @@ export interface Transaction extends TransactionPayload {
 export interface SnapshotHolding {
   user_asset_id: number
   instrument_id: number
+  instrument_code: string | null
+  instrument_exchange: string | null
   name: string
   bucket_name: string | null
   group_name: string | null
