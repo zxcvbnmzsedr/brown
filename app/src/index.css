@@ -633,6 +633,287 @@ select:focus-visible {
   justify-items: center;
 }
 
+.trend-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.trend-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.trend-summary-card {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  min-height: 94px;
+  padding: 14px;
+  border: 1px solid #dce4ed;
+  border-radius: 8px;
+  background: #f7f9fc;
+}
+
+.trend-summary-card.primary {
+  background: #172033;
+  color: #fff;
+}
+
+.trend-summary-card small,
+.trend-summary-card span {
+  color: #657287;
+  font-weight: 800;
+}
+
+.trend-summary-card.primary small,
+.trend-summary-card.primary span {
+  color: rgb(255 255 255 / 72%);
+}
+
+.trend-summary-card strong {
+  overflow-wrap: anywhere;
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.trend-chart {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.trend-chart svg {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 7;
+  overflow: visible;
+}
+
+.trend-chart line {
+  stroke: #dce4ed;
+  stroke-width: 0.55;
+}
+
+.trend-chart polyline {
+  fill: none;
+  stroke: var(--trend-color);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.trend-axis {
+  justify-content: space-between;
+  color: #657287;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.trend-legend {
+  gap: 8px;
+}
+
+.trend-empty {
+  display: grid;
+  min-height: 160px;
+  place-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.trend-empty small {
+  max-width: 260px;
+  color: #657287;
+  line-height: 1.5;
+}
+
+.calendar-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.calendar-toolbar {
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+}
+
+.calendar-toolbar button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid #dce4ed;
+  border-radius: 8px;
+  background: #fff;
+  color: #2f7ff0;
+  font-weight: 900;
+}
+
+.calendar-toolbar strong {
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.calendar-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.calendar-summary-card {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  min-height: 88px;
+  padding: 14px;
+  border: 1px solid #dce4ed;
+  border-radius: 8px;
+  background: #f7f9fc;
+}
+
+.calendar-summary-card.primary {
+  background: #172033;
+  color: #fff;
+}
+
+.calendar-summary-card small,
+.calendar-summary-card span {
+  color: #657287;
+  font-weight: 800;
+}
+
+.calendar-summary-card.primary small,
+.calendar-summary-card.primary span {
+  color: rgb(255 255 255 / 72%);
+}
+
+.calendar-summary-card strong {
+  overflow-wrap: anywhere;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.calendar-week-row,
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.calendar-week-row span {
+  color: #657287;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.calendar-day {
+  display: grid;
+  min-width: 0;
+  min-height: 72px;
+  align-content: start;
+  gap: 3px;
+  padding: 8px 6px;
+  border: 1px solid #dce4ed;
+  border-radius: 8px;
+  background: #fff;
+  color: #172033;
+  text-align: left;
+}
+
+.calendar-day.blank {
+  border-color: transparent;
+  background: transparent;
+}
+
+.calendar-day.selected {
+  border-color: #2f7ff0;
+  box-shadow: 0 0 0 2px rgb(47 127 240 / 14%);
+}
+
+.calendar-day.disabled,
+.calendar-day:disabled {
+  border-color: #edf1f5;
+  background: #f6f8fa;
+  color: #a5afbd;
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.calendar-day.disabled span,
+.calendar-day.disabled strong,
+.calendar-day.disabled small,
+.calendar-day:disabled span,
+.calendar-day:disabled strong,
+.calendar-day:disabled small {
+  color: #a5afbd;
+}
+
+.calendar-day.positive {
+  background: #f0fbf5;
+}
+
+.calendar-day.negative {
+  background: #fff4f4;
+}
+
+.calendar-day span {
+  color: #657287;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.calendar-day strong {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.calendar-day small {
+  overflow-wrap: anywhere;
+  color: #657287;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.calendar-detail {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 8px;
+  background: #f5f7fa;
+}
+
+.calendar-detail-head {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.calendar-detail-head span,
+.calendar-detail-head strong {
+  font-weight: 900;
+}
+
+.calendar-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 8px 12px;
+}
+
+.calendar-detail-grid span {
+  color: #657287;
+  font-weight: 800;
+}
+
+.calendar-detail-grid strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
 .donut {
   display: grid;
   position: relative;
@@ -2061,6 +2342,57 @@ select:focus-visible {
     gap: 14px;
   }
 
+  .trend-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trend-summary-card {
+    min-height: 84px;
+    padding: 12px;
+  }
+
+  .trend-summary-card strong {
+    font-size: 20px;
+  }
+
+  .trend-chart svg {
+    aspect-ratio: 4 / 3;
+  }
+
+  .calendar-panel {
+    gap: 12px;
+  }
+
+  .calendar-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .calendar-week-row,
+  .calendar-grid {
+    gap: 4px;
+  }
+
+  .calendar-day {
+    min-height: 62px;
+    padding: 6px 4px;
+  }
+
+  .calendar-day strong {
+    font-size: 11px;
+  }
+
+  .calendar-day small {
+    font-size: 10px;
+  }
+
+  .calendar-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .calendar-detail-grid strong {
+    text-align: left;
+  }
+
   .donut {
     width: 148px;
     height: 148px;
@@ -2580,6 +2912,584 @@ select:focus-visible {
   }
 }
 
+/* Refined compact trading app typography pass */
+:root {
+  font-size: 15px;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+}
+
+.mobile-shell {
+  width: min(100%, 540px);
+  padding-top: 12px;
+}
+
+.login-panel {
+  padding: 24px;
+}
+
+.login-heading {
+  margin: 22px 0 16px;
+}
+
+.login-heading h1 {
+  font-size: 24px;
+  font-weight: 750;
+}
+
+.login-heading p,
+.login-brand-text small,
+.portfolio-head p {
+  font-size: 12px;
+}
+
+.login-field-label,
+.login-input-wrap input,
+.instrument-search-box input,
+.ledger-search-box input,
+.inline-form input,
+.inline-form select,
+.transaction-form input,
+.transaction-form select,
+.entry-row input,
+.entry-row select {
+  font-size: 14px;
+}
+
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  margin-right: 10px;
+  font-size: 15px;
+}
+
+.mobile-topbar {
+  min-height: 40px;
+}
+
+.ghost-icon-button,
+.icon-button,
+.login-input-toggle,
+.subpage-nav button:first-child,
+.subsection-title-row button {
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+}
+
+.guide-button {
+  min-height: 36px;
+  font-size: 12px;
+}
+
+.portfolio-head {
+  grid-template-columns: minmax(0, 1fr) 40px;
+  gap: 10px;
+  margin: 8px 0 12px;
+}
+
+.portfolio-select {
+  min-height: 40px;
+  font-size: 24px;
+  font-weight: 760;
+}
+
+.avatar-button {
+  width: 40px;
+  height: 40px;
+  font-size: 14px;
+}
+
+.summary-card {
+  padding: 16px;
+}
+
+.summary-top {
+  gap: 10px;
+}
+
+.summary-label,
+.score-block span,
+.summary-grid span {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.summary-total {
+  margin-top: 8px;
+  font-size: clamp(30px, 8vw, 40px);
+  font-weight: 780;
+}
+
+.score-block {
+  gap: 6px;
+}
+
+.score-block strong {
+  font-size: 18px;
+  font-weight: 760;
+}
+
+.summary-grid {
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.summary-grid div {
+  padding: 9px 10px;
+  border-radius: 8px;
+}
+
+.summary-grid strong {
+  font-size: 15px;
+  font-weight: 720;
+}
+
+.shortcut-grid {
+  gap: 8px;
+  margin: 14px 0 16px;
+}
+
+.shortcut-grid button {
+  min-height: 62px;
+  gap: 6px;
+  padding: 9px 4px;
+}
+
+.shortcut-grid svg {
+  width: 20px;
+  height: 20px;
+}
+
+.shortcut-grid span,
+.bottom-nav button span {
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.section-title-row {
+  min-height: 38px;
+  margin-bottom: 8px;
+}
+
+.section-title-row h2,
+.panel-title-row h2,
+.subpage-nav h1,
+.subsection-title-row h1,
+.instrument-list-section h2 {
+  font-size: 18px;
+  font-weight: 760;
+}
+
+.holding-actions button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.holding-list-card {
+  gap: 8px;
+}
+
+.holding-item-head {
+  min-height: 56px;
+  padding: 10px;
+}
+
+.holding-logo {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  font-size: 13px;
+}
+
+.holding-name strong,
+.ledger-instrument strong,
+.ledger-account strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.holding-name small,
+.ledger-instrument small,
+.ledger-account small {
+  font-size: 12px;
+}
+
+.holding-money {
+  min-width: 106px;
+}
+
+.holding-money strong {
+  font-size: 14px;
+  font-weight: 720;
+}
+
+.holding-table {
+  gap: 5px 8px;
+  padding: 10px;
+}
+
+.holding-table span,
+.holding-table small {
+  font-size: 11px;
+}
+
+.holding-table strong {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.compact-panel {
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.panel-title-row {
+  margin-bottom: 12px;
+}
+
+.trend-panel,
+.calendar-panel,
+.ledger-workbench {
+  gap: 12px;
+}
+
+.trend-summary-grid,
+.calendar-summary-grid,
+.ledger-summary-grid {
+  gap: 8px;
+}
+
+.trend-summary-card,
+.calendar-summary-card,
+.ledger-summary-card {
+  min-height: 78px;
+  padding: 11px;
+}
+
+.trend-summary-card small,
+.trend-summary-card span,
+.calendar-summary-card small,
+.calendar-summary-card span,
+.ledger-summary-card small,
+.ledger-summary-card span {
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.trend-summary-card strong,
+.calendar-summary-card strong,
+.ledger-summary-card strong {
+  font-size: 18px;
+  font-weight: 740;
+}
+
+.trend-chart {
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.trend-axis {
+  font-size: 11px;
+}
+
+.legend-row,
+.bucket-row,
+.account-row,
+.transaction-row {
+  min-height: 46px;
+  padding: 9px 10px;
+}
+
+.legend-row,
+.bucket-row-main,
+.bucket-row-meta,
+.account-row,
+.transaction-row {
+  font-size: 13px;
+}
+
+.donut {
+  width: 140px;
+  height: 140px;
+}
+
+.donut::after {
+  width: 88px;
+  height: 88px;
+}
+
+.donut span {
+  font-size: 20px;
+  font-weight: 760;
+}
+
+.donut small {
+  font-size: 12px;
+}
+
+.calendar-toolbar {
+  min-height: 38px;
+}
+
+.calendar-toolbar button {
+  min-height: 34px;
+  padding: 0 11px;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.calendar-toolbar strong {
+  font-size: 15px;
+  font-weight: 740;
+}
+
+.calendar-week-row,
+.calendar-grid {
+  gap: 5px;
+}
+
+.calendar-week-row span {
+  font-size: 11px;
+}
+
+.calendar-day {
+  min-height: 58px;
+  gap: 2px;
+  padding: 6px 5px;
+}
+
+.calendar-day span,
+.calendar-day strong,
+.calendar-day small {
+  font-weight: 650;
+}
+
+.calendar-day span {
+  font-size: 11px;
+}
+
+.calendar-day strong {
+  font-size: 10px;
+}
+
+.calendar-day small {
+  font-size: 10px;
+}
+
+.calendar-detail {
+  gap: 10px;
+  padding: 11px;
+}
+
+.calendar-detail-head span,
+.calendar-detail-head strong {
+  font-size: 14px;
+  font-weight: 720;
+}
+
+.calendar-detail-grid {
+  gap: 6px 10px;
+  font-size: 12px;
+}
+
+.ledger-toolbar {
+  gap: 8px;
+  padding: 10px;
+}
+
+.ledger-search-box,
+.ledger-date-controls label,
+.ledger-type-tabs,
+.ledger-reset-button {
+  min-height: 38px;
+}
+
+.ledger-search-box input,
+.ledger-date-controls input {
+  min-height: 36px;
+  font-size: 13px;
+}
+
+.ledger-date-controls span {
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.ledger-type-tabs button,
+.ledger-reset-button {
+  min-height: 32px;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.ledger-table-head {
+  min-height: 32px;
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.ledger-card-grid {
+  min-height: 64px;
+  padding: 10px;
+}
+
+.ledger-type {
+  min-height: 22px;
+  padding: 3px 7px;
+  font-size: 12px;
+}
+
+.ledger-trade span {
+  font-size: 14px;
+  font-weight: 720;
+}
+
+.ledger-number strong,
+.ledger-number small,
+.ledger-card time,
+.ledger-card-actions button {
+  font-size: 12px;
+}
+
+.ledger-card-actions button {
+  min-height: 30px;
+  padding: 0 8px;
+  font-weight: 680;
+}
+
+.subpage-content {
+  padding-bottom: 24px;
+}
+
+.subpage-nav,
+.instrument-search-head {
+  min-height: 46px;
+  padding-top: 6px;
+  padding-bottom: 10px;
+}
+
+.subpage-nav button:last-child,
+.subpage-nav-actions button,
+.instrument-search-head > button {
+  min-height: 34px;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.instrument-search-box {
+  min-height: 42px;
+}
+
+.instrument-search-box input {
+  min-height: 40px;
+}
+
+.instrument-row,
+.platform-row {
+  min-height: 62px;
+  padding: 10px 12px;
+}
+
+.instrument-row-main strong,
+.platform-row-main strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.instrument-row-main span,
+.platform-row-main span,
+.market-badge,
+.instrument-kind {
+  font-size: 11px;
+}
+
+.entry-row {
+  min-height: 50px;
+  padding: 10px 12px;
+}
+
+.entry-row span,
+.transaction-context,
+.type-row > span,
+.amount-row span,
+.note-row span,
+.checkline {
+  font-size: 12px;
+}
+
+.type-segment button {
+  min-height: 34px;
+  font-size: 13px;
+}
+
+.bottom-nav {
+  min-height: 60px;
+  padding: 6px;
+}
+
+.bottom-nav button {
+  min-height: 48px;
+}
+
+.bottom-nav svg {
+  width: 19px;
+  height: 19px;
+}
+
+.floating-add {
+  right: 22px;
+  bottom: 82px;
+  width: 52px;
+  height: 52px;
+}
+
+.floating-add svg {
+  width: 28px;
+  height: 28px;
+}
+
+@media (min-width: 760px) {
+  .mobile-shell {
+    width: min(100%, 980px);
+  }
+
+  .shortcut-grid button {
+    min-height: 66px;
+  }
+}
+
+@media (max-width: 420px) {
+  .summary-total {
+    font-size: 30px;
+  }
+
+  .summary-grid {
+    gap: 7px;
+  }
+
+  .summary-grid div {
+    padding: 8px;
+  }
+
+  .shortcut-grid {
+    gap: 6px;
+  }
+
+  .shortcut-grid button {
+    min-height: 58px;
+  }
+
+  .calendar-day {
+    min-height: 54px;
+    padding: 5px 4px;
+  }
+}
+
 @media (max-width: 350px) {
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2616,5 +3526,1269 @@ select:focus-visible {
 
   .ledger-card-actions button {
     flex: 1;
+  }
+}
+
+/* Commercial investment app refresh */
+:root {
+  --brown-ink: #111827;
+  --brown-ink-2: #344054;
+  --brown-muted: #667085;
+  --brown-line: #e4e7ec;
+  --brown-line-strong: #d0d5dd;
+  --brown-bg: #f4f6f8;
+  --brown-panel: #fff;
+  --brown-panel-2: #f8fafc;
+  --brown-brand: #175cd3;
+  --brown-brand-2: #0b4fb3;
+  --brown-gold: #b7791f;
+  --brown-green: #12805c;
+  --brown-red: #d92d20;
+  --brown-shadow-sm: 0 1px 2px rgb(16 24 40 / 5%);
+  --brown-shadow-md: 0 12px 28px rgb(16 24 40 / 8%);
+  --brown-shadow-lg: 0 24px 70px rgb(16 24 40 / 16%);
+  color: var(--brown-ink);
+  background: var(--brown-bg);
+  font-family: Inter, "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+body {
+  background:
+    radial-gradient(circle at 50% -20%, rgb(23 92 211 / 10%), transparent 34rem),
+    linear-gradient(180deg, #f8fafc 0%, #eef2f6 48%, #f4f6f8 100%);
+  color: var(--brown-ink);
+}
+
+button,
+input,
+select {
+  color: inherit;
+}
+
+button,
+.calendar-day,
+.ledger-card-actions button,
+.shortcut-grid button,
+.bottom-nav button,
+.primary-button,
+.inline-form button,
+.transaction-form button {
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgb(23 92 211 / 24%);
+  outline-offset: 2px;
+}
+
+.auth-loading,
+.login-page {
+  background:
+    radial-gradient(circle at top left, rgb(23 92 211 / 20%), transparent 22rem),
+    linear-gradient(135deg, #0b1220 0%, #172033 46%, #f3f6fa 46%, #f7f9fc 100%);
+}
+
+.login-panel {
+  border: 1px solid rgb(255 255 255 / 62%);
+  border-radius: 18px;
+  background: rgb(255 255 255 / 94%);
+  box-shadow: var(--brown-shadow-lg);
+}
+
+.brand-mark {
+  border-radius: 12px;
+  background: linear-gradient(135deg, #0f172a, #175cd3);
+  box-shadow: 0 12px 24px rgb(23 92 211 / 24%);
+}
+
+.login-brand-text strong,
+.login-heading h1 {
+  color: var(--brown-ink);
+}
+
+.login-brand-text small,
+.login-heading p,
+.summary-label,
+.summary-grid span,
+.holding-name small,
+.holding-table span,
+.holding-table small,
+.legend-row small,
+.bucket-row-meta small,
+.account-row small,
+.transaction-row small,
+.history-chip-list span,
+.transaction-context,
+.ledger-table-head,
+.ledger-instrument small,
+.ledger-trade span,
+.ledger-account small,
+.ledger-number small {
+  color: var(--brown-muted);
+}
+
+.mode-switch,
+.composer-tabs,
+.ledger-type-tabs {
+  border: 1px solid #edf0f3;
+  border-radius: 12px;
+  background: #f2f4f7;
+}
+
+.mode-switch button,
+.composer-tabs button,
+.ledger-type-tabs button {
+  border-radius: 9px;
+  font-weight: 800;
+}
+
+.mode-switch .active,
+.composer-tabs .active,
+.ledger-type-tabs button.active {
+  background: #fff;
+  color: var(--brown-ink);
+  box-shadow: 0 6px 16px rgb(16 24 40 / 9%);
+}
+
+.login-input-wrap,
+.inline-form input,
+.inline-form select,
+.transaction-form input,
+.transaction-form select,
+.entry-row input,
+.entry-row select,
+.ledger-search-box,
+.ledger-date-controls label,
+.instrument-search-box {
+  border-color: var(--brown-line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--brown-shadow-sm);
+}
+
+.primary-button,
+.inline-form button,
+.transaction-form button,
+.holding-actions button,
+.floating-add {
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--brown-brand), var(--brown-brand-2));
+  box-shadow: 0 12px 28px rgb(23 92 211 / 24%);
+}
+
+.app-home {
+  background:
+    linear-gradient(180deg, #0b1220 0, #101828 310px, #f3f6fa 310px, #f4f6f8 100%);
+}
+
+.mobile-shell {
+  width: min(100%, 560px);
+  padding-top: 18px;
+}
+
+.mobile-topbar,
+.portfolio-head,
+.portfolio-head p,
+.portfolio-select,
+.portfolio-select-wrap {
+  color: #fff;
+}
+
+.ghost-icon-button,
+.guide-button {
+  color: rgb(255 255 255 / 88%);
+}
+
+.guide-button {
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 8%);
+}
+
+.portfolio-head {
+  margin: 10px 0 16px;
+}
+
+.portfolio-select {
+  font-size: 30px;
+  letter-spacing: 0;
+}
+
+.portfolio-head p {
+  color: rgb(255 255 255 / 66%);
+  font-size: 13px;
+}
+
+.avatar-button {
+  border: 1px solid rgb(255 255 255 / 34%);
+  background: linear-gradient(135deg, #eab308, #b7791f);
+  box-shadow: 0 14px 32px rgb(0 0 0 / 24%);
+}
+
+.summary-card {
+  position: relative;
+  overflow: hidden;
+  padding: 20px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 15%), rgb(255 255 255 / 6%)),
+    linear-gradient(135deg, #172033 0%, #243b63 58%, #175cd3 100%);
+  color: #fff;
+  box-shadow: 0 24px 70px rgb(2 6 23 / 28%);
+}
+
+.summary-card::after {
+  position: absolute;
+  right: -80px;
+  bottom: -90px;
+  width: 210px;
+  height: 210px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 50%;
+  background: rgb(255 255 255 / 7%);
+  content: "";
+}
+
+.summary-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.summary-label,
+.summary-grid span,
+.score-block span {
+  color: rgb(255 255 255 / 68%);
+}
+
+.summary-icons {
+  color: rgb(255 255 255 / 50%);
+}
+
+.summary-total {
+  margin-top: 12px;
+  color: #fff;
+  font-size: clamp(34px, 9vw, 46px);
+  font-weight: 900;
+}
+
+.score-block strong,
+.summary-grid strong {
+  color: #fff;
+}
+
+.summary-grid {
+  gap: 12px;
+}
+
+.summary-grid div {
+  padding: 12px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 14px;
+  background: rgb(255 255 255 / 8%);
+}
+
+.positive {
+  color: var(--brown-green);
+}
+
+.negative {
+  color: var(--brown-red);
+}
+
+.summary-card .positive {
+  color: #6ee7b7;
+}
+
+.summary-card .negative {
+  color: #fda29b;
+}
+
+.neutral {
+  color: var(--brown-ink);
+}
+
+.shortcut-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0 20px;
+}
+
+.shortcut-grid button {
+  min-height: 78px;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  gap: 8px;
+  padding: 12px 6px;
+  border: 1px solid var(--brown-line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--brown-shadow-sm);
+  text-align: center;
+}
+
+.shortcut-grid button:not(:disabled):hover {
+  border-color: #bfd4ff;
+  box-shadow: var(--brown-shadow-md);
+}
+
+.shortcut-grid svg {
+  color: var(--brown-brand);
+}
+
+.shortcut-grid span {
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.shortcut-grid .disabled {
+  background: #f6f8fa;
+}
+
+.section-title-row {
+  padding: 0 2px;
+}
+
+.section-title-row h2,
+.panel-title-row h2,
+.subpage-nav h1,
+.subsection-title-row h1,
+.instrument-list-section h2 {
+  color: var(--brown-ink);
+  letter-spacing: 0;
+}
+
+.holding-list-card {
+  gap: 12px;
+}
+
+.holding-item,
+.soft-card,
+.ledger-card,
+.ledger-toolbar,
+.ledger-summary-card,
+.calendar-detail,
+.entry-card,
+.login-panel {
+  border-color: var(--brown-line);
+  border-radius: 18px;
+  background: var(--brown-panel);
+  box-shadow: var(--brown-shadow-sm);
+}
+
+.holding-item {
+  box-shadow: 0 10px 30px rgb(16 24 40 / 6%);
+}
+
+.holding-item-head {
+  min-height: 68px;
+  padding: 14px;
+}
+
+.holding-logo,
+.platform-logo {
+  border-radius: 12px;
+  background: linear-gradient(135deg, #eaf2ff, #d7e6ff);
+  color: var(--brown-brand);
+}
+
+.holding-money {
+  min-width: 128px;
+}
+
+.holding-table {
+  margin: 0 12px 12px;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.subpage-shell,
+.transaction-page {
+  background:
+    linear-gradient(180deg, #0b1220 0, #101828 92px, #f4f6f8 92px, #f4f6f8 100%);
+}
+
+.subpage-content {
+  width: min(100%, 760px);
+}
+
+.subpage-nav,
+.instrument-search-head {
+  color: #fff;
+  background: transparent;
+}
+
+.subpage-nav h1,
+.instrument-search-head h1 {
+  color: #fff;
+}
+
+.subpage-nav button,
+.instrument-search-head > button {
+  color: rgb(255 255 255 / 90%);
+}
+
+.subpage-nav button:first-child,
+.instrument-search-head > button:first-child {
+  border-color: rgb(255 255 255 / 14%);
+  background: rgb(255 255 255 / 9%);
+  color: #fff;
+}
+
+.subpage-nav button:last-child,
+.subpage-nav-actions button,
+.instrument-search-head > button {
+  border-radius: 999px;
+  background: rgb(255 255 255 / 10%);
+}
+
+.compact-panel {
+  padding: 18px;
+  border-radius: 20px;
+}
+
+.trend-summary-card,
+.calendar-summary-card,
+.ledger-summary-card {
+  border-color: var(--brown-line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--brown-shadow-sm);
+}
+
+.trend-summary-card.primary,
+.calendar-summary-card.primary,
+.ledger-summary-card.primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, #111827, #243b63);
+  color: #fff;
+}
+
+.trend-summary-card.primary small,
+.trend-summary-card.primary span,
+.calendar-summary-card.primary small,
+.calendar-summary-card.primary span,
+.ledger-summary-card.primary small,
+.ledger-summary-card.primary span {
+  color: rgb(255 255 255 / 66%);
+}
+
+.trend-chart {
+  padding: 14px;
+  border: 1px solid var(--brown-line);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, #fff, #f8fafc);
+}
+
+.trend-chart line {
+  stroke: #e4e7ec;
+}
+
+.legend-row,
+.bucket-row,
+.account-row,
+.transaction-row {
+  border: 1px solid #edf0f3;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.donut {
+  background:
+    radial-gradient(circle, #fff 0 36%, transparent 37%),
+    conic-gradient(var(--donut-gradient));
+  box-shadow: inset 0 0 0 1px rgb(16 24 40 / 6%);
+}
+
+.donut::after {
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(16 24 40 / 4%);
+}
+
+.bucket-meter {
+  height: 10px;
+  background: #e4e7ec;
+}
+
+.bucket-meter-fill {
+  background: linear-gradient(90deg, var(--brown-brand), #5ea1ff);
+}
+
+.bucket-meter-target {
+  background: #111827;
+}
+
+.calendar-toolbar button,
+.ledger-reset-button,
+.ledger-card-actions button,
+.subsection-title-row button {
+  border-color: var(--brown-line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--brown-brand);
+}
+
+.calendar-summary-grid {
+  gap: 12px;
+}
+
+.calendar-week-row,
+.calendar-grid {
+  gap: 7px;
+}
+
+.calendar-day {
+  min-height: 76px;
+  border-color: var(--brown-line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: var(--brown-shadow-sm);
+}
+
+.calendar-day.selected {
+  border-color: var(--brown-brand);
+  box-shadow: 0 0 0 3px rgb(23 92 211 / 12%), var(--brown-shadow-sm);
+}
+
+.calendar-day.positive {
+  border-color: #d1fadf;
+  background: #f0fdf4;
+}
+
+.calendar-day.negative {
+  border-color: #fee4e2;
+  background: #fff5f5;
+}
+
+.calendar-day.disabled,
+.calendar-day:disabled {
+  border-color: #edf0f3;
+  background: #f8fafc;
+  box-shadow: none;
+}
+
+.calendar-detail {
+  background: #f8fafc;
+}
+
+.ledger-workbench {
+  gap: 18px;
+}
+
+.ledger-summary-grid {
+  gap: 12px;
+}
+
+.ledger-toolbar {
+  padding: 14px;
+}
+
+.ledger-table-head {
+  border-color: var(--brown-line);
+  border-radius: 14px;
+  background: #eef2f6;
+}
+
+.ledger-card {
+  border-radius: 16px;
+}
+
+.ledger-card-grid {
+  min-height: 84px;
+}
+
+.ledger-instrument em,
+.ledger-type.buy {
+  background: #fff1f0;
+  color: var(--brown-red);
+}
+
+.ledger-type.sell {
+  background: #ecfdf3;
+  color: var(--brown-green);
+}
+
+.instrument-search-box,
+.platform-search-box {
+  box-shadow: var(--brown-shadow-md);
+}
+
+.history-chip-list button,
+.instrument-row,
+.platform-row,
+.entry-row,
+.entry-launcher {
+  border-color: var(--brown-line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--brown-shadow-sm);
+}
+
+.instrument-row,
+.platform-row {
+  min-height: 76px;
+}
+
+.market-badge,
+.instrument-kind,
+.ledger-type {
+  border-radius: 999px;
+}
+
+.floating-add {
+  border: 1px solid rgb(255 255 255 / 18%);
+}
+
+.bottom-nav {
+  width: min(520px, calc(100% - 28px));
+  min-height: 70px;
+  padding: 8px;
+  border: 1px solid rgb(255 255 255 / 78%);
+  border-radius: 22px;
+  background: rgb(255 255 255 / 92%);
+  box-shadow: 0 18px 45px rgb(16 24 40 / 16%);
+  backdrop-filter: blur(18px);
+}
+
+.bottom-nav button {
+  border-radius: 16px;
+}
+
+.bottom-nav button.active {
+  background: #eef4ff;
+  color: var(--brown-brand);
+}
+
+.bottom-nav button span {
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.empty-state,
+.empty-holding,
+.ledger-empty-state,
+.platform-empty-state {
+  border-radius: 18px;
+  border-color: var(--brown-line);
+  background: #fff;
+  color: var(--brown-muted);
+}
+
+@media (min-width: 760px) {
+  .app-home {
+    background:
+      linear-gradient(180deg, #0b1220 0, #101828 280px, #f4f6f8 280px, #f4f6f8 100%);
+  }
+
+  .mobile-shell {
+    width: min(100%, 1040px);
+  }
+
+  .home-content-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr);
+    gap: 18px;
+    align-items: start;
+  }
+
+  .summary-card {
+    grid-column: 1 / -1;
+  }
+
+  .shortcut-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .holdings-section {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 420px) {
+  .app-home {
+    padding-right: 12px;
+    padding-left: 12px;
+    background:
+      linear-gradient(180deg, #0b1220 0, #101828 290px, #f4f6f8 290px, #f4f6f8 100%);
+  }
+
+  .summary-card {
+    padding: 16px;
+    border-radius: 18px;
+  }
+
+  .summary-top {
+    grid-template-columns: 1fr;
+  }
+
+  .score-block {
+    justify-items: start;
+  }
+
+  .summary-total {
+    font-size: 34px;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .shortcut-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .shortcut-grid button {
+    min-height: 70px;
+    padding: 9px 4px;
+  }
+
+  .shortcut-grid span {
+    font-size: 11px;
+  }
+
+  .calendar-day {
+    min-height: 64px;
+    border-radius: 12px;
+  }
+}
+
+/* Binance-inspired dark trading terminal theme */
+:root {
+  --brown-ink: #eaecef;
+  --brown-ink-2: #c8ccd2;
+  --brown-muted: #848e9c;
+  --brown-line: #2b3139;
+  --brown-line-strong: #3a414c;
+  --brown-bg: #0b0e11;
+  --brown-panel: #181a20;
+  --brown-panel-2: #1e2329;
+  --brown-brand: #f0b90b;
+  --brown-brand-2: #fcd535;
+  --brown-gold: #f0b90b;
+  --brown-green: #0ecb81;
+  --brown-red: #f6465d;
+  --brown-shadow-sm: 0 1px 0 rgb(255 255 255 / 4%);
+  --brown-shadow-md: 0 18px 42px rgb(0 0 0 / 24%);
+  --brown-shadow-lg: 0 30px 90px rgb(0 0 0 / 42%);
+  color: var(--brown-ink);
+  background: var(--brown-bg);
+}
+
+body {
+  background:
+    radial-gradient(circle at 50% -18%, rgb(240 185 11 / 13%), transparent 28rem),
+    linear-gradient(180deg, #0b0e11 0%, #0b0e11 100%);
+  color: var(--brown-ink);
+}
+
+button,
+input,
+select {
+  color: var(--brown-ink);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgb(240 185 11 / 32%);
+  outline-offset: 2px;
+}
+
+.auth-loading,
+.login-page,
+.app-home,
+.subpage-shell,
+.transaction-page {
+  background:
+    radial-gradient(circle at 85% 0%, rgb(240 185 11 / 12%), transparent 22rem),
+    linear-gradient(180deg, #0b0e11 0%, #0b0e11 100%);
+  color: var(--brown-ink);
+}
+
+.login-panel,
+.summary-card,
+.soft-card,
+.holding-item,
+.ledger-card,
+.ledger-toolbar,
+.ledger-summary-card,
+.trend-summary-card,
+.calendar-summary-card,
+.calendar-detail,
+.entry-card,
+.instrument-row,
+.platform-row,
+.entry-row,
+.entry-launcher,
+.bottom-nav,
+.login-input-wrap,
+.inline-form input,
+.inline-form select,
+.transaction-form input,
+.transaction-form select,
+.entry-row input,
+.entry-row select,
+.ledger-search-box,
+.ledger-date-controls label,
+.instrument-search-box,
+.platform-search-box {
+  border-color: var(--brown-line);
+  background: var(--brown-panel);
+  color: var(--brown-ink);
+  box-shadow: var(--brown-shadow-sm);
+}
+
+.login-panel,
+.summary-card,
+.soft-card,
+.holding-item,
+.ledger-card,
+.ledger-toolbar,
+.entry-card {
+  border-radius: 10px;
+}
+
+.brand-mark,
+.avatar-button,
+.holding-logo,
+.platform-logo {
+  border: 1px solid rgb(240 185 11 / 34%);
+  border-radius: 8px;
+  background: #2b250f;
+  color: var(--brown-brand-2);
+  box-shadow: none;
+}
+
+.login-brand-text strong,
+.login-heading h1,
+.portfolio-select,
+.section-title-row h2,
+.panel-title-row h2,
+.subpage-nav h1,
+.subsection-title-row h1,
+.instrument-list-section h2,
+.holding-name strong,
+.ledger-instrument strong,
+.ledger-account strong,
+.calendar-toolbar strong {
+  color: var(--brown-ink);
+}
+
+.login-brand-text small,
+.login-heading p,
+.summary-label,
+.summary-grid span,
+.holding-name small,
+.holding-table span,
+.holding-table small,
+.legend-row small,
+.bucket-row-meta small,
+.account-row small,
+.transaction-row small,
+.history-chip-list span,
+.transaction-context,
+.ledger-table-head,
+.ledger-instrument small,
+.ledger-trade span,
+.ledger-account small,
+.ledger-number small,
+.portfolio-head p,
+.calendar-week-row span,
+.calendar-day span,
+.calendar-day small,
+.calendar-detail-grid span,
+.ledger-summary-card small,
+.ledger-summary-card span,
+.trend-summary-card small,
+.trend-summary-card span,
+.calendar-summary-card small,
+.calendar-summary-card span {
+  color: var(--brown-muted);
+}
+
+.primary-button,
+.inline-form button,
+.transaction-form button,
+.holding-actions button,
+.floating-add {
+  border: 0;
+  border-radius: 8px;
+  background: var(--brown-brand-2);
+  color: #181a20;
+  box-shadow: none;
+}
+
+.primary-button:hover,
+.inline-form button:hover,
+.transaction-form button:hover,
+.holding-actions button:hover,
+.floating-add:hover {
+  background: var(--brown-brand);
+}
+
+.mode-switch,
+.composer-tabs,
+.ledger-type-tabs {
+  border-color: var(--brown-line);
+  background: #11161c;
+}
+
+.mode-switch button,
+.composer-tabs button,
+.ledger-type-tabs button {
+  color: var(--brown-muted);
+}
+
+.mode-switch .active,
+.composer-tabs .active,
+.ledger-type-tabs button.active {
+  background: var(--brown-panel-2);
+  color: var(--brown-brand-2);
+  box-shadow: inset 0 0 0 1px rgb(240 185 11 / 18%);
+}
+
+.mobile-topbar,
+.portfolio-head,
+.portfolio-select-wrap,
+.subpage-nav,
+.instrument-search-head {
+  color: var(--brown-ink);
+}
+
+.ghost-icon-button,
+.guide-button,
+.subpage-nav button,
+.instrument-search-head > button,
+.calendar-toolbar button,
+.ledger-reset-button,
+.ledger-card-actions button,
+.subsection-title-row button {
+  border-color: var(--brown-line);
+  background: var(--brown-panel-2);
+  color: var(--brown-brand-2);
+}
+
+.guide-button {
+  border: 1px solid var(--brown-line);
+}
+
+.portfolio-select {
+  color: var(--brown-ink);
+}
+
+.summary-card {
+  overflow: hidden;
+  border-color: rgb(240 185 11 / 18%);
+  background:
+    linear-gradient(135deg, rgb(240 185 11 / 14%), transparent 40%),
+    linear-gradient(180deg, #181a20 0%, #10151b 100%);
+  color: var(--brown-ink);
+  box-shadow: 0 18px 52px rgb(0 0 0 / 32%);
+}
+
+.summary-card::after {
+  border-color: rgb(240 185 11 / 10%);
+  background: rgb(240 185 11 / 5%);
+}
+
+.summary-total,
+.score-block strong,
+.summary-grid strong,
+.ledger-summary-card strong,
+.trend-summary-card strong,
+.calendar-summary-card strong,
+.calendar-detail-grid strong,
+.calendar-detail-head strong,
+.account-row strong,
+.transaction-row strong,
+.legend-row strong,
+.bucket-row-main strong {
+  color: var(--brown-ink);
+}
+
+.summary-card .summary-total {
+  color: var(--brown-brand-2);
+}
+
+.summary-grid div {
+  border-color: var(--brown-line);
+  background: rgb(30 35 41 / 78%);
+}
+
+.positive {
+  color: var(--brown-green);
+}
+
+.negative {
+  color: var(--brown-red);
+}
+
+.neutral {
+  color: var(--brown-ink);
+}
+
+.summary-card .positive {
+  color: var(--brown-green);
+}
+
+.summary-card .negative {
+  color: var(--brown-red);
+}
+
+.shortcut-grid button {
+  border-color: var(--brown-line);
+  border-radius: 8px;
+  background: var(--brown-panel);
+  color: var(--brown-ink);
+  box-shadow: none;
+}
+
+.shortcut-grid button:not(:disabled):hover {
+  border-color: rgb(240 185 11 / 40%);
+  background: #1e2329;
+  box-shadow: none;
+}
+
+.shortcut-grid svg,
+.summary-icons,
+.holding-actions,
+.entry-launcher svg:first-child {
+  color: var(--brown-brand-2);
+}
+
+.shortcut-grid .disabled,
+.bottom-nav button.disabled,
+.calendar-day.disabled,
+.calendar-day:disabled {
+  border-color: #1e2329;
+  background: #11161c;
+  color: #5e6673;
+  opacity: 1;
+}
+
+.holding-table,
+.legend-row,
+.bucket-row,
+.account-row,
+.transaction-row,
+.calendar-detail,
+.ledger-number,
+.empty-state,
+.empty-holding,
+.ledger-empty-state,
+.platform-empty-state {
+  border-color: var(--brown-line);
+  background: var(--brown-panel-2);
+  color: var(--brown-muted);
+}
+
+.holding-item-head {
+  border-bottom: 1px solid var(--brown-line);
+}
+
+.holding-table {
+  margin: 0;
+  border-radius: 0;
+}
+
+.trend-summary-card.primary,
+.calendar-summary-card.primary,
+.ledger-summary-card.primary {
+  border-color: rgb(240 185 11 / 24%);
+  background:
+    linear-gradient(135deg, rgb(240 185 11 / 15%), transparent 46%),
+    var(--brown-panel);
+}
+
+.trend-summary-card.primary strong,
+.calendar-summary-card.primary strong,
+.ledger-summary-card.primary strong {
+  color: var(--brown-brand-2);
+}
+
+.trend-chart {
+  border-color: var(--brown-line);
+  background: #11161c;
+}
+
+.trend-chart line {
+  stroke: #2b3139;
+}
+
+.trend-chart polyline {
+  stroke-width: 2.2;
+}
+
+.donut {
+  background:
+    radial-gradient(circle, var(--brown-panel) 0 36%, transparent 37%),
+    conic-gradient(var(--donut-gradient));
+}
+
+.donut::after {
+  background: var(--brown-panel);
+  box-shadow: inset 0 0 0 1px var(--brown-line);
+}
+
+.bucket-meter {
+  background: #2b3139;
+}
+
+.bucket-meter-fill {
+  background: var(--brown-brand-2);
+}
+
+.bucket-meter-target {
+  background: #eaecef;
+}
+
+.calendar-day {
+  border-color: var(--brown-line);
+  border-radius: 8px;
+  background: var(--brown-panel);
+  color: var(--brown-ink);
+  box-shadow: none;
+}
+
+.calendar-day.selected {
+  border-color: var(--brown-brand);
+  box-shadow: inset 0 0 0 1px rgb(240 185 11 / 46%);
+}
+
+.calendar-day.positive {
+  border-color: rgb(14 203 129 / 24%);
+  background: rgb(14 203 129 / 8%);
+}
+
+.calendar-day.negative {
+  border-color: rgb(246 70 93 / 24%);
+  background: rgb(246 70 93 / 8%);
+}
+
+.calendar-day.disabled span,
+.calendar-day.disabled strong,
+.calendar-day.disabled small,
+.calendar-day:disabled span,
+.calendar-day:disabled strong,
+.calendar-day:disabled small {
+  color: #5e6673;
+}
+
+.ledger-table-head {
+  border-color: var(--brown-line);
+  background: #11161c;
+}
+
+.ledger-card {
+  box-shadow: none;
+}
+
+.ledger-card::before {
+  background: var(--brown-red);
+}
+
+.ledger-card.sell::before {
+  background: var(--brown-green);
+}
+
+.ledger-instrument em,
+.ledger-type.buy {
+  background: rgb(246 70 93 / 12%);
+  color: var(--brown-red);
+}
+
+.ledger-type.sell {
+  background: rgb(14 203 129 / 12%);
+  color: var(--brown-green);
+}
+
+.market-badge,
+.instrument-kind,
+.ledger-type {
+  border-radius: 4px;
+}
+
+.market-badge,
+.instrument-kind {
+  background: #11161c;
+  color: var(--brown-muted);
+}
+
+.red {
+  color: var(--brown-red);
+  background: rgb(246 70 93 / 12%);
+}
+
+.gold {
+  color: var(--brown-brand-2);
+  background: rgb(240 185 11 / 12%);
+}
+
+.blue {
+  color: #7aa2ff;
+  background: rgb(122 162 255 / 12%);
+}
+
+.slate {
+  color: var(--brown-muted);
+  background: #11161c;
+}
+
+.bottom-nav {
+  border-color: var(--brown-line);
+  border-radius: 12px;
+  background: rgb(24 26 32 / 94%);
+  box-shadow: 0 -12px 30px rgb(0 0 0 / 32%);
+}
+
+.bottom-nav button {
+  color: var(--brown-muted);
+}
+
+.bottom-nav button.active {
+  background: rgb(240 185 11 / 12%);
+  color: var(--brown-brand-2);
+}
+
+.alert {
+  border-color: rgb(246 70 93 / 28%);
+  background: rgb(246 70 93 / 10%);
+  color: #ff99a7;
+}
+
+.loading-panel {
+  color: var(--brown-muted);
+}
+
+@media (min-width: 760px) {
+  .app-home {
+    background:
+      radial-gradient(circle at 84% 0%, rgb(240 185 11 / 12%), transparent 24rem),
+      linear-gradient(180deg, #0b0e11 0%, #0b0e11 100%);
+  }
+}
+
+@media (max-width: 420px) {
+  .app-home {
+    background:
+      radial-gradient(circle at 90% -10%, rgb(240 185 11 / 13%), transparent 19rem),
+      linear-gradient(180deg, #0b0e11 0%, #0b0e11 100%);
+  }
+
+  .summary-card {
+    border-radius: 10px;
+  }
+
+  .shortcut-grid button,
+  .calendar-day {
+    border-radius: 8px;
   }
 }

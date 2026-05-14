@@ -8,6 +8,8 @@ import type {
   LoginResponse,
   Portfolio,
   PortfolioSnapshot,
+  PortfolioTrend,
+  ProfitCalendar,
   TradingPlatform,
   Transaction,
   TransactionPayload,
@@ -89,6 +91,9 @@ export const api = {
 
   listPortfolios: () => request<Portfolio[]>('/portfolios'),
   getSnapshot: (portfolioId: number) => request<PortfolioSnapshot>(`/portfolios/${portfolioId}/snapshot`),
+  getTrend: (portfolioId: number, days = 90) => request<PortfolioTrend>(`/portfolios/${portfolioId}/trend${toQuery({ days })}`),
+  getProfitCalendar: (portfolioId: number, year: number, month: number) =>
+    request<ProfitCalendar>(`/portfolios/${portfolioId}/profit-calendar${toQuery({ year, month })}`),
 
   listInstruments: (q?: string, limit = 20) => request<Instrument[]>(`/instruments${toQuery({ q, limit })}`),
   listTradingPlatforms: (usage?: 'investment' | 'cash') =>

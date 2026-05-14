@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
+from calendar import monthrange
+from datetime import date, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -18,9 +19,15 @@ from server.models import (
 )
 from server.schemas import (
     CashAccountRead,
+    ProfitCalendar,
+    ProfitCalendarDay,
+    ProfitCalendarSummary,
     PortfolioSnapshot,
+    PortfolioTrend,
     SnapshotBucket,
     SnapshotHolding,
+    TrendPoint,
+    TrendSummary,
     UserAssetRead,
 )
 
@@ -229,6 +236,208 @@ def build_snapshot(db: Session, user_id: int, portfolio_id: int) -> PortfolioSna
             for account in cash_accounts
         ],
         buckets=buckets,
+    )
+
+
+def build_trend(db: Session, user_id: int, portfolio_id: int, days: int = 90) -> PortfolioTrend:
+    safe_days = max(7, min(days, 365))
+    end_date = date.today()
+    start_date = end_date - timedelta(days=safe_days - 1)
+    points = build_trend_points(db, user_id, portfolio_id, start_date, end_date)
+
+    start_value = points[0].total_value if points else 0.0
+    end_value = points[-1].total_value if points else 0.0
+    change_value = end_value - start_value
+    return PortfolioTrend(
+        portfolio_id=portfolio_id,
+        start_date=start_date,
+        end_date=end_date,
+        points=points,
+        summary=TrendSummary(
+            start_value=start_value,
+            end_value=end_value,
+            change_value=change_value,
+            change_rate=change_value / start_value if start_value else 0.0,
+        ),
+    )
+
+
+def build_trend_points(db: Session, user_id: int, portfolio_id: int, start_date: date, end_date: date) -> list[TrendPoint]:
+    if end_date < start_date:
+        return []
+
+    day_count = (end_date - start_date).days + 1
+    dates = [start_date + timedelta(days=index) for index in range(day_count)]
+
+    portfolio_exists = db.scalars(
+        select(Portfolio.id).where(Portfolio.user_id == user_id, Portfolio.id == portfolio_id).limit(1)
+    ).first()
+    if portfolio_exists is None:
+        raise ValueError("Portfolio not found")
+
+    transactions = db.scalars(
+        select(Transaction)
+        .where(Transaction.user_id == user_id, Transaction.portfolio_id == portfolio_id)
+        .order_by(Transaction.date, Transaction.id)
+    ).all()
+    cash_accounts = db.scalars(
+        select(CashAccount)
+        .where(
+            CashAccount.user_id == user_id,
+            CashAccount.portfolio_id == portfolio_id,
+            CashAccount.is_active == True,
+            CashAccount.include_in_rebalance == True,
+        )
+        .order_by(CashAccount.id)
+    ).all()
+
+    instrument_ids = sorted({tx.instrument_id for tx in transactions})
+    price_rows = []
+    if instrument_ids:
+        price_rows = db.scalars(
+            select(InstrumentPrice)
+            .where(InstrumentPrice.instrument_id.in_(instrument_ids), InstrumentPrice.date <= end_date)
+            .order_by(InstrumentPrice.instrument_id, InstrumentPrice.date, InstrumentPrice.id)
+        ).all()
+
+    price_dates_by_instrument: dict[int, list[tuple[date, float]]] = defaultdict(list)
+    for price in price_rows:
+        records = price_dates_by_instrument[price.instrument_id]
+        if records and records[-1][0] == price.date:
+            records[-1] = (price.date, price.price)
+        else:
+            records.append((price.date, price.price))
+
+    prices_by_day: dict[date, dict[int, float]] = {item: {} for item in dates}
+    for instrument_id, records in price_dates_by_instrument.items():
+        cursor = 0
+        latest_price: float | None = None
+        for current_date in dates:
+            while cursor < len(records) and records[cursor][0] <= current_date:
+                latest_price = records[cursor][1]
+                cursor += 1
+            if latest_price is not None:
+                prices_by_day[current_date][instrument_id] = latest_price
+
+    txs_by_date: dict[date, list[Transaction]] = defaultdict(list)
+    quantities: dict[int, float] = defaultdict(float)
+    for tx in transactions:
+        if tx.date < start_date:
+            quantities[tx.instrument_id] += tx.qty if tx.type == "buy" else -tx.qty
+        elif tx.date <= end_date:
+            txs_by_date[tx.date].append(tx)
+
+    current_cash_by_account = {
+        account.id: account.balance
+        for account in cash_accounts
+    }
+    cash_account_ids = set(current_cash_by_account)
+    cash_deltas_by_date: dict[date, float] = defaultdict(float)
+    for tx in transactions:
+        if tx.cash_account_id not in cash_account_ids or tx.date > end_date:
+            continue
+        cash_deltas_by_date[tx.date] += signed_cash_delta(tx.type, tx.qty, tx.price, tx.fee)
+
+    current_cash_value = sum(current_cash_by_account.values())
+    cash_value_by_date: dict[date, float] = {}
+    running_cash = current_cash_value
+    for current_date in reversed(dates):
+        cash_value_by_date[current_date] = running_cash
+        running_cash -= cash_deltas_by_date.get(current_date, 0.0)
+
+    points: list[TrendPoint] = []
+    for current_date in dates:
+        for tx in txs_by_date.get(current_date, []):
+            quantities[tx.instrument_id] += tx.qty if tx.type == "buy" else -tx.qty
+
+        holdings_value = 0.0
+        day_prices = prices_by_day[current_date]
+        for instrument_id, quantity in quantities.items():
+            if abs(quantity) < 1e-9:
+                continue
+            price = day_prices.get(instrument_id)
+            if price is not None:
+                holdings_value += quantity * price
+
+        cash_value = cash_value_by_date[current_date]
+        points.append(
+            TrendPoint(
+                date=current_date,
+                total_value=holdings_value + cash_value,
+                holdings_value=holdings_value,
+                cash_value=cash_value,
+            )
+        )
+
+    return points
+
+
+def build_profit_calendar(db: Session, user_id: int, portfolio_id: int, year: int, month: int) -> ProfitCalendar:
+    safe_month = max(1, min(month, 12))
+    safe_year = max(1970, min(year, 9999))
+    start_date = date(safe_year, safe_month, 1)
+    end_date = date(safe_year, safe_month, monthrange(safe_year, safe_month)[1])
+    prior_date = start_date - timedelta(days=1)
+    trend_points = build_trend_points(db, user_id, portfolio_id, prior_date, end_date)
+
+    transactions = db.scalars(
+        select(Transaction)
+        .where(
+            Transaction.user_id == user_id,
+            Transaction.portfolio_id == portfolio_id,
+            Transaction.date >= start_date,
+            Transaction.date <= end_date,
+        )
+        .order_by(Transaction.date, Transaction.id)
+    ).all()
+    txs_by_date: dict[date, list[Transaction]] = defaultdict(list)
+    for tx in transactions:
+        txs_by_date[tx.date].append(tx)
+
+    previous_total = trend_points[0].total_value if trend_points else 0.0
+    days: list[ProfitCalendarDay] = []
+    for point in trend_points[1:]:
+        day_transactions = txs_by_date.get(point.date, [])
+        change_value = point.total_value - previous_total
+        buy_amount = sum(transaction_amount(tx.type, tx.qty, tx.price, tx.fee) for tx in day_transactions if tx.type == "buy")
+        sell_amount = sum(transaction_amount(tx.type, tx.qty, tx.price, tx.fee) for tx in day_transactions if tx.type == "sell")
+        fee = sum(tx.fee for tx in day_transactions)
+        days.append(
+            ProfitCalendarDay(
+                date=point.date,
+                total_value=point.total_value,
+                holdings_value=point.holdings_value,
+                cash_value=point.cash_value,
+                change_value=change_value,
+                change_rate=change_value / previous_total if previous_total else 0.0,
+                buy_amount=buy_amount,
+                sell_amount=sell_amount,
+                fee=fee,
+                transaction_count=len(day_transactions),
+            )
+        )
+        previous_total = point.total_value
+
+    first_value = trend_points[0].total_value if trend_points else 0.0
+    last_value = trend_points[-1].total_value if trend_points else 0.0
+    month_change = last_value - first_value
+    return ProfitCalendar(
+        portfolio_id=portfolio_id,
+        start_date=start_date,
+        end_date=end_date,
+        year=safe_year,
+        month=safe_month,
+        days=days,
+        summary=ProfitCalendarSummary(
+            month_change=month_change,
+            month_change_rate=month_change / first_value if first_value else 0.0,
+            positive_days=sum(1 for day in days if day.change_value > 0),
+            negative_days=sum(1 for day in days if day.change_value < 0),
+            flat_days=sum(1 for day in days if day.change_value == 0),
+            buy_amount=sum(day.buy_amount for day in days),
+            sell_amount=sum(day.sell_amount for day in days),
+            fee=sum(day.fee for day in days),
+        ),
     )
 
 

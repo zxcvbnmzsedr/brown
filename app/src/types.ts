@@ -190,3 +190,59 @@ export interface PortfolioSnapshot {
   cash_accounts: CashAccount[]
   buckets: SnapshotBucket[]
 }
+
+export interface TrendPoint {
+  date: string
+  total_value: number
+  holdings_value: number
+  cash_value: number
+}
+
+export interface TrendSummary {
+  start_value: number
+  end_value: number
+  change_value: number
+  change_rate: number
+}
+
+export interface PortfolioTrend {
+  portfolio_id: number
+  start_date: string
+  end_date: string
+  points: TrendPoint[]
+  summary: TrendSummary
+}
+
+export interface ProfitCalendarDay {
+  date: string
+  total_value: number
+  holdings_value: number
+  cash_value: number
+  change_value: number
+  change_rate: number
+  buy_amount: number
+  sell_amount: number
+  fee: number
+  transaction_count: number
+}
+
+export interface ProfitCalendarSummary {
+  month_change: number
+  month_change_rate: number
+  positive_days: number
+  negative_days: number
+  flat_days: number
+  buy_amount: number
+  sell_amount: number
+  fee: number
+}
+
+export interface ProfitCalendar {
+  portfolio_id: number
+  year: number
+  month: number
+  start_date: string
+  end_date: string
+  days: ProfitCalendarDay[]
+  summary: ProfitCalendarSummary
+}

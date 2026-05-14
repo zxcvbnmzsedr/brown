@@ -41,6 +41,10 @@ import type {
   InvestmentAccount,
   Portfolio,
   PortfolioSnapshot,
+  PortfolioTrend,
+  ProfitCalendar,
+  ProfitCalendarDay,
+  TrendPoint,
   TradingPlatform,
   Transaction,
   TransactionPayload,
@@ -58,6 +62,12 @@ function addYears(value: string, years: number) {
   return date.toISOString().slice(0, 10)
 }
 
+function addMonths(value: string, months: number) {
+  const date = new Date(`${value}-01T00:00:00`)
+  date.setMonth(date.getMonth() + months)
+  return date.toISOString().slice(0, 7)
+}
+
 const defaultLedgerStartDate = addYears(today, -1)
 
 function csvCell(value: string | number | null | undefined) {
@@ -65,7 +75,7 @@ function csvCell(value: string | number | null | undefined) {
 }
 
 type Composer = 'transaction' | 'cash' | 'investment' | 'asset'
-type FeatureScreen = 'distribution' | 'rebalance' | 'accounts' | 'quick-entry' | 'ledger'
+type FeatureScreen = 'trend' | 'profit-calendar' | 'distribution' | 'rebalance' | 'accounts' | 'quick-entry' | 'ledger'
 type ShortcutTarget = Composer | Exclude<FeatureScreen, 'accounts' | 'quick-entry'>
 type AppScreen = 'home' | FeatureScreen | 'instrument-search' | 'transaction-create' | 'platform-select'
 type TransactionMode = 'create' | 'edit'
@@ -88,6 +98,8 @@ interface ShortcutItem {
   disabled?: boolean
   icon: typeof ReceiptText
 }
+
+type CalendarCell = { key: string; day?: ProfitCalendarDay }
 
 const defaultTransactionDraft: TransactionDraft = {
   type: 'buy',
@@ -123,6 +135,17 @@ function moneyTone(value: number) {
 
 function ratio(value: number) {
   return `${Math.max(0, Math.min(100, value * 100)).toFixed(2)}%`
+}
+
+function trendPolyline(points: TrendPoint[], key: 'total_value' | 'holdings_value' | 'cash_value', min: number, max: number) {
+  if (points.length === 0) return ''
+  const values = points.map((point) => point[key])
+  const range = max - min
+  return values.map((value, index) => {
+    const x = points.length === 1 ? 0 : (index / (points.length - 1)) * 100
+    const y = range === 0 ? 50 : 92 - ((value - min) / range) * 84
+    return `${x.toFixed(2)},${y.toFixed(2)}`
+  }).join(' ')
 }
 
 function distributionGradient(segments: Array<{ value: number; color: string }>) {
@@ -175,6 +198,8 @@ export default function App() {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([])
   const [portfolioId, setPortfolioId] = useState<number | null>(null)
   const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null)
+  const [trend, setTrend] = useState<PortfolioTrend | null>(null)
+  const [profitCalendar, setProfitCalendar] = useState<ProfitCalendar | null>(null)
   const [instruments, setInstruments] = useState<Instrument[]>([])
   const [investmentPlatforms, setInvestmentPlatforms] = useState<TradingPlatform[]>([])
   const [cashPlatforms, setCashPlatforms] = useState<TradingPlatform[]>([])
@@ -194,6 +219,8 @@ export default function App() {
   const [transactionTypeFilter, setTransactionTypeFilter] = useState<'all' | TransactionPayload['type']>('all')
   const [ledgerStartDate, setLedgerStartDate] = useState(defaultLedgerStartDate)
   const [ledgerEndDate, setLedgerEndDate] = useState(today)
+  const [calendarMonth, setCalendarMonth] = useState(today.slice(0, 7))
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(today)
   const [instrumentLoading, setInstrumentLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -256,13 +283,33 @@ export default function App() {
   const mixDonutStyle = {
     '--donut-gradient': distributionGradient(assetMix),
   } as CSSProperties
+  const trendPoints = trend?.points ?? []
+  const trendHasValue = trendPoints.some((point) => point.total_value > 0 || point.holdings_value > 0 || point.cash_value > 0)
+  const trendLines = [
+    { key: 'total_value' as const, label: '总资产', color: '#172033', value: trend?.summary.end_value ?? 0 },
+    { key: 'holdings_value' as const, label: '标的持仓', color: '#2f7ff0', value: trendPoints.at(-1)?.holdings_value ?? 0 },
+    { key: 'cash_value' as const, label: '现金仓位', color: '#18a058', value: trendPoints.at(-1)?.cash_value ?? 0 },
+  ]
+  const trendValues = trendPoints.flatMap((point) => [point.total_value, point.holdings_value, point.cash_value])
+  const trendMin = trendValues.length ? Math.min(...trendValues) : 0
+  const trendMax = trendValues.length ? Math.max(...trendValues) : 0
+  const calendarDays = profitCalendar?.days ?? []
+  const availableCalendarDays = calendarDays.filter((day) => day.date <= today)
+  const selectedCalendarDay = availableCalendarDays.find((day) => day.date === selectedCalendarDate) ?? availableCalendarDays.at(-1) ?? null
+  const calendarLeadingBlanks = profitCalendar
+    ? new Date(`${profitCalendar.start_date}T00:00:00`).getDay()
+    : 0
+  const calendarCells: CalendarCell[] = [
+    ...Array.from({ length: calendarLeadingBlanks }, (_, index) => ({ key: `blank-${index}` })),
+    ...calendarDays.map((day) => ({ key: day.date, day })),
+  ]
 
   const shortcuts: ShortcutItem[] = [
     { label: '交易记录', target: 'ledger', icon: ReceiptText },
-    { label: '变动趋势', disabled: true, icon: ChartNoAxesCombined },
+    { label: '变动趋势', target: 'trend', icon: ChartNoAxesCombined },
     { label: '持仓分布', target: 'distribution', icon: ChartPie },
     { label: '再平衡', target: 'rebalance', icon: SlidersHorizontal },
-    { label: '盈亏日历', disabled: true, icon: CalendarDays },
+    { label: '盈亏日历', target: 'profit-calendar', icon: CalendarDays },
     { label: '模版导入', disabled: true, icon: FileDown },
     { label: '标签组', target: 'asset', icon: Tag },
     { label: '盈亏排行', disabled: true, icon: Trophy },
@@ -293,13 +340,22 @@ export default function App() {
   async function loadPortfolio(targetPortfolioId: number) {
     setError(null)
     try {
-      const [snapshotRow, investmentAccountRows, cashAccountRows, transactionRows] = await Promise.all([
+      const [year, month] = calendarMonth.split('-').map(Number)
+      const [snapshotRow, trendRow, calendarRow, investmentAccountRows, cashAccountRows, transactionRows] = await Promise.all([
         api.getSnapshot(targetPortfolioId),
+        api.getTrend(targetPortfolioId, 90),
+        api.getProfitCalendar(targetPortfolioId, year, month),
         api.listInvestmentAccounts(targetPortfolioId),
         api.listCashAccounts(targetPortfolioId),
         api.listTransactions(targetPortfolioId),
       ])
       setSnapshot(snapshotRow)
+      setTrend(trendRow)
+      setProfitCalendar(calendarRow)
+      const latestAvailableDate = calendarRow.days.filter((day) => day.date <= today).at(-1)?.date
+      setSelectedCalendarDate((current) => (
+        current.startsWith(calendarMonth) && current <= today ? current : latestAvailableDate ?? current
+      ))
       setInvestmentAccounts(investmentAccountRows)
       setCashAccounts(cashAccountRows)
       setTransactions(transactionRows)
@@ -340,12 +396,50 @@ export default function App() {
   useEffect(() => {
     if (portfolioId !== null) {
       const timer = window.setTimeout(() => {
-        void loadPortfolio(portfolioId)
+        setError(null)
+        void Promise.all([
+          api.getSnapshot(portfolioId),
+          api.getTrend(portfolioId, 90),
+          api.listInvestmentAccounts(portfolioId),
+          api.listCashAccounts(portfolioId),
+          api.listTransactions(portfolioId),
+        ])
+          .then(([snapshotRow, trendRow, investmentAccountRows, cashAccountRows, transactionRows]) => {
+            setSnapshot(snapshotRow)
+            setTrend(trendRow)
+            setInvestmentAccounts(investmentAccountRows)
+            setCashAccounts(cashAccountRows)
+            setTransactions(transactionRows)
+          })
+          .catch((caught) => {
+            setError(caught instanceof Error ? caught.message : '加载失败')
+          })
       }, 0)
       return () => window.clearTimeout(timer)
     }
     return undefined
   }, [portfolioId])
+
+  useEffect(() => {
+    if (portfolioId === null) return undefined
+    let cancelled = false
+    const [year, month] = calendarMonth.split('-').map(Number)
+    api.getProfitCalendar(portfolioId, year, month)
+      .then((calendarRow) => {
+        if (cancelled) return
+        setProfitCalendar(calendarRow)
+        const latestAvailableDate = calendarRow.days.filter((day) => day.date <= today).at(-1)?.date
+        setSelectedCalendarDate((current) => (
+          current.startsWith(calendarMonth) && current <= today ? current : latestAvailableDate ?? current
+        ))
+      })
+      .catch((caught) => {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : '加载盈亏日历失败')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [calendarMonth, portfolioId])
 
   async function refresh() {
     await loadInitial()
@@ -527,6 +621,14 @@ export default function App() {
     if (item.disabled || !item.target) return
     if (item.target === 'ledger') {
       openFeaturePage('ledger')
+      return
+    }
+    if (item.target === 'trend') {
+      openFeaturePage('trend')
+      return
+    }
+    if (item.target === 'profit-calendar') {
+      openFeaturePage('profit-calendar')
       return
     }
     if (item.target === 'distribution') {
@@ -999,6 +1101,188 @@ export default function App() {
     )
   }
 
+  if (screen === 'trend') {
+    return (
+      <main className="subpage-shell feature-page trend-page">
+        <div className="subpage-content">
+          <header className="subpage-nav">
+            <button type="button" onClick={backToHome} aria-label="返回首页">
+              <ArrowLeft size={28} />
+            </button>
+            <h1>变动趋势</h1>
+            <button type="button" onClick={() => void refresh()}>刷新</button>
+          </header>
+
+          {error ? <div className="alert">{error}</div> : null}
+
+          <section id="trend" className="soft-card compact-panel trend-panel">
+            <div className="panel-title-row">
+              <h2>近 90 天</h2>
+              <ChartNoAxesCombined size={20} />
+            </div>
+
+            <div className="trend-summary-grid">
+              <div className="trend-summary-card primary">
+                <small>总资产</small>
+                <strong>{money(trend?.summary.end_value ?? totalValue)}</strong>
+                <span>{trend ? `${displayDate(trend.start_date)} - ${displayDate(trend.end_date)}` : '近 90 天'}</span>
+              </div>
+              <div className="trend-summary-card">
+                <small>区间变动</small>
+                <strong className={moneyTone(trend?.summary.change_value ?? 0)}>{signedMoney(trend?.summary.change_value ?? 0)}</strong>
+                <span className={moneyTone(trend?.summary.change_rate ?? 0)}>{percent(trend?.summary.change_rate ?? 0)}</span>
+              </div>
+            </div>
+
+            {trendHasValue ? (
+              <>
+                <div className="trend-chart" aria-label="资产变动趋势">
+                  <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img">
+                    <line x1="0" y1="92" x2="100" y2="92" />
+                    <line x1="0" y1="50" x2="100" y2="50" />
+                    <line x1="0" y1="8" x2="100" y2="8" />
+                    {trendLines.map((line) => (
+                      <polyline
+                        key={line.key}
+                        points={trendPolyline(trendPoints, line.key, trendMin, trendMax)}
+                        style={{ '--trend-color': line.color } as CSSProperties}
+                      />
+                    ))}
+                  </svg>
+                  <div className="trend-axis">
+                    <span>{trend ? displayDate(trend.start_date).slice(5) : ''}</span>
+                    <span>{trend ? displayDate(trend.end_date).slice(5) : ''}</span>
+                  </div>
+                </div>
+
+                <div className="legend-list trend-legend">
+                  {trendLines.map((line) => (
+                    <div key={line.key} className="legend-row">
+                      <span className="legend-dot" style={{ '--dot-color': line.color } as CSSProperties} />
+                      <span>{line.label}</span>
+                      <strong>{money(line.value)}</strong>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="empty-state trend-empty">
+                <ChartNoAxesCombined size={28} />
+                <span>暂无趋势数据</span>
+                <small>录入现金账户、交易流水并维护价格后，这里会显示资产曲线。</small>
+              </div>
+            )}
+          </section>
+        </div>
+      </main>
+    )
+  }
+
+  if (screen === 'profit-calendar') {
+    return (
+      <main className="subpage-shell feature-page profit-calendar-page">
+        <div className="subpage-content">
+          <header className="subpage-nav">
+            <button type="button" onClick={backToHome} aria-label="返回首页">
+              <ArrowLeft size={28} />
+            </button>
+            <h1>盈亏日历</h1>
+            <button type="button" onClick={() => void refresh()}>刷新</button>
+          </header>
+
+          {error ? <div className="alert">{error}</div> : null}
+
+          <section id="profit-calendar" className="soft-card compact-panel calendar-panel">
+            <div className="panel-title-row">
+              <h2>资产变动</h2>
+              <CalendarDays size={20} />
+            </div>
+
+            <div className="calendar-toolbar" aria-label="月份切换">
+              <button type="button" onClick={() => setCalendarMonth((current) => addMonths(current, -1))}>
+                上月
+              </button>
+              <strong>{calendarMonth.replace('-', ' / ')}</strong>
+              <button type="button" onClick={() => setCalendarMonth((current) => addMonths(current, 1))}>
+                下月
+              </button>
+            </div>
+
+            <div className="calendar-summary-grid">
+              <div className="calendar-summary-card primary">
+                <small>本月变动</small>
+                <strong className={moneyTone(profitCalendar?.summary.month_change ?? 0)}>
+                  {signedMoney(profitCalendar?.summary.month_change ?? 0)}
+                </strong>
+                <span className={moneyTone(profitCalendar?.summary.month_change_rate ?? 0)}>
+                  {percent(profitCalendar?.summary.month_change_rate ?? 0)}
+                </span>
+              </div>
+              <div className="calendar-summary-card">
+                <small>上涨 / 下跌</small>
+                <strong>{profitCalendar?.summary.positive_days ?? 0} / {profitCalendar?.summary.negative_days ?? 0}</strong>
+                <span>平稳 {profitCalendar?.summary.flat_days ?? 0} 天</span>
+              </div>
+            </div>
+
+            <div className="calendar-week-row" aria-hidden="true">
+              {['日', '一', '二', '三', '四', '五', '六'].map((day) => <span key={day}>{day}</span>)}
+            </div>
+
+            <div className="calendar-grid" aria-label="月度盈亏日历">
+              {calendarCells.map((cell) => {
+                if (!cell.day) return <span key={cell.key} className="calendar-day blank" />
+                const day = cell.day
+                const isFuture = day.date > today
+                const isSelected = selectedCalendarDay?.date === day.date
+                return (
+                  <button
+                    key={cell.key}
+                    type="button"
+                    className={`calendar-day ${isFuture ? 'disabled' : moneyTone(day.change_value)} ${isSelected ? 'selected' : ''}`}
+                    disabled={isFuture}
+                    onClick={() => setSelectedCalendarDate(day.date)}
+                    aria-pressed={isSelected}
+                  >
+                    <span>{Number(day.date.slice(-2))}</span>
+                    <strong>{isFuture ? '未到' : day.change_value === 0 ? '-' : signedMoney(day.change_value)}</strong>
+                    {isFuture ? <small>禁用</small> : day.transaction_count > 0 ? <small>{day.transaction_count} 笔</small> : <small>{money(day.total_value)}</small>}
+                  </button>
+                )
+              })}
+            </div>
+
+            {selectedCalendarDay ? (
+              <div className="calendar-detail">
+                <div className="calendar-detail-head">
+                  <span>{displayDate(selectedCalendarDay.date)}</span>
+                  <strong className={moneyTone(selectedCalendarDay.change_value)}>{signedMoney(selectedCalendarDay.change_value)}</strong>
+                </div>
+                <div className="calendar-detail-grid">
+                  <span>总资产</span>
+                  <strong>{money(selectedCalendarDay.total_value)}</strong>
+                  <span>持仓</span>
+                  <strong>{money(selectedCalendarDay.holdings_value)}</strong>
+                  <span>现金</span>
+                  <strong>{money(selectedCalendarDay.cash_value)}</strong>
+                  <span>买入 / 卖出</span>
+                  <strong>{money(selectedCalendarDay.buy_amount)} / {money(selectedCalendarDay.sell_amount)}</strong>
+                  <span>费用</span>
+                  <strong>{money(selectedCalendarDay.fee)}</strong>
+                </div>
+              </div>
+            ) : (
+              <div className="empty-state trend-empty">
+                <CalendarDays size={28} />
+                <span>暂无日历数据</span>
+              </div>
+            )}
+          </section>
+        </div>
+      </main>
+    )
+  }
+
   if (screen === 'rebalance') {
     return (
       <main className="subpage-shell feature-page rebalance-page">
@@ -1411,115 +1695,117 @@ export default function App() {
         {error ? <div className="alert">{error}</div> : null}
         {loading ? <div className="soft-card loading-panel">加载中...</div> : null}
 
-        <section className="summary-card">
-          <div className="summary-top">
-            <div>
-              <span className="summary-label">持仓总资产</span>
-              <span className="summary-icons">
-                <CircleHelp size={14} />
-                <Eye size={17} />
-              </span>
-              <strong className="summary-total">{money(totalValue)}</strong>
-            </div>
-            <div className="score-block">
-              <span>投资成绩 <ChevronRight size={14} /></span>
-              <strong className={moneyTone(investmentScore)}>{signedMoney(investmentScore)}</strong>
-            </div>
-          </div>
-          <div className="summary-grid">
-            <div>
-              <span>已实现盈亏 <ChevronRight size={13} /></span>
-              <strong>{money(0)}</strong>
-            </div>
-            <div>
-              <span>持仓盈亏 <CircleHelp size={13} /></span>
-              <strong className={moneyTone(holdingPnl)}>{signedMoney(holdingPnl)}</strong>
-            </div>
-            <div>
-              <span>现金 <ChevronRight size={13} /></span>
-              <strong>{money(cashValue)}</strong>
-            </div>
-            <div>
-              <span>手续费 <ChevronRight size={13} /></span>
-              <strong>{money(feeTotal)}</strong>
-            </div>
-            <div>
-              <span>分红 <ChevronRight size={13} /></span>
-              <strong>{money(0)}</strong>
-            </div>
-          </div>
-        </section>
-
-        <nav className="shortcut-grid" aria-label="首页快捷入口">
-          {shortcuts.map((item) => {
-            const Icon = item.icon
-            return (
-              <button
-                key={item.label}
-                className={item.disabled ? 'disabled' : ''}
-                type="button"
-                disabled={item.disabled}
-                onClick={() => handleShortcut(item)}
-              >
-                <Icon size={25} />
-                <span>{item.label}</span>
-              </button>
-            )
-          })}
-        </nav>
-
-        <section id="holdings" className="holdings-section">
-          <div className="section-title-row">
-            <h2>我的持仓 ({holdingRows.length})</h2>
-            <div className="holding-actions">
-              <button type="button" onClick={() => void refresh()}>
-                <RefreshCw size={16} />
-                同步价格
-              </button>
-              <ArrowDownUp size={22} aria-hidden="true" />
-            </div>
-          </div>
-
-          <div className="holding-list-card">
-            {holdingRows.length > 0 ? holdingRows.map((holding) => {
-              const pnl = holding.market_value - holding.cost_basis
-              return (
-                <article key={holding.user_asset_id} className="holding-item">
-                  <div className="holding-item-head">
-                    <div className="holding-logo">{holding.name.slice(0, 1)}</div>
-                    <div className="holding-name">
-                      <strong>{holding.name}</strong>
-                      <small>{holding.group_name || holding.bucket_name || '未分类'}</small>
-                    </div>
-                    <div className="holding-money">
-                      <strong className={moneyTone(pnl)}>{signedMoney(pnl)}</strong>
-                      <ChevronDown size={16} />
-                    </div>
-                  </div>
-                  <div className="holding-table">
-                    <span>名称/代码</span>
-                    <span>市值/份额</span>
-                    <span>现价/成本</span>
-                    <span>持仓盈亏</span>
-                    <strong>{holding.name}</strong>
-                    <strong>{money(holding.market_value)}</strong>
-                    <strong>{holding.latest_price === null ? '-' : holding.latest_price.toFixed(4)}</strong>
-                    <strong className={moneyTone(pnl)}>{signedMoney(pnl)}</strong>
-                    <small>{holding.instrument_code || holding.instrument_exchange || holding.instrument_id}</small>
-                    <small>{holding.quantity}</small>
-                    <small>{holding.average_cost.toFixed(4)}</small>
-                    <small>{holding.cost_basis ? percent(pnl / holding.cost_basis) : '0.0%'}</small>
-                  </div>
-                </article>
-              )
-            }) : (
-              <div className="empty-holding">
-                <WalletCards size={28} />
-                <span>暂无持仓</span>
+        <div className="home-content-grid">
+          <section className="summary-card">
+            <div className="summary-top">
+              <div>
+                <span className="summary-label">持仓总资产</span>
+                <span className="summary-icons">
+                  <CircleHelp size={14} />
+                  <Eye size={17} />
+                </span>
+                <strong className="summary-total">{money(totalValue)}</strong>
               </div>
-            )}
-          </div>
-        </section>
+              <div className="score-block">
+                <span>投资成绩 <ChevronRight size={14} /></span>
+                <strong className={moneyTone(investmentScore)}>{signedMoney(investmentScore)}</strong>
+              </div>
+            </div>
+            <div className="summary-grid">
+              <div>
+                <span>已实现盈亏 <ChevronRight size={13} /></span>
+                <strong>{money(0)}</strong>
+              </div>
+              <div>
+                <span>持仓盈亏 <CircleHelp size={13} /></span>
+                <strong className={moneyTone(holdingPnl)}>{signedMoney(holdingPnl)}</strong>
+              </div>
+              <div>
+                <span>现金 <ChevronRight size={13} /></span>
+                <strong>{money(cashValue)}</strong>
+              </div>
+              <div>
+                <span>手续费 <ChevronRight size={13} /></span>
+                <strong>{money(feeTotal)}</strong>
+              </div>
+              <div>
+                <span>分红 <ChevronRight size={13} /></span>
+                <strong>{money(0)}</strong>
+              </div>
+            </div>
+          </section>
+
+          <nav className="shortcut-grid" aria-label="首页快捷入口">
+            {shortcuts.map((item) => {
+              const Icon = item.icon
+              return (
+                <button
+                  key={item.label}
+                  className={item.disabled ? 'disabled' : ''}
+                  type="button"
+                  disabled={item.disabled}
+                  onClick={() => handleShortcut(item)}
+                >
+                  <Icon size={25} />
+                  <span>{item.label}</span>
+                </button>
+              )
+            })}
+          </nav>
+
+          <section id="holdings" className="holdings-section">
+            <div className="section-title-row">
+              <h2>我的持仓 ({holdingRows.length})</h2>
+              <div className="holding-actions">
+                <button type="button" onClick={() => void refresh()}>
+                  <RefreshCw size={16} />
+                  同步价格
+                </button>
+                <ArrowDownUp size={22} aria-hidden="true" />
+              </div>
+            </div>
+
+            <div className="holding-list-card">
+              {holdingRows.length > 0 ? holdingRows.map((holding) => {
+                const pnl = holding.market_value - holding.cost_basis
+                return (
+                  <article key={holding.user_asset_id} className="holding-item">
+                    <div className="holding-item-head">
+                      <div className="holding-logo">{holding.name.slice(0, 1)}</div>
+                      <div className="holding-name">
+                        <strong>{holding.name}</strong>
+                        <small>{holding.group_name || holding.bucket_name || '未分类'}</small>
+                      </div>
+                      <div className="holding-money">
+                        <strong className={moneyTone(pnl)}>{signedMoney(pnl)}</strong>
+                        <ChevronDown size={16} />
+                      </div>
+                    </div>
+                    <div className="holding-table">
+                      <span>名称/代码</span>
+                      <span>市值/份额</span>
+                      <span>现价/成本</span>
+                      <span>持仓盈亏</span>
+                      <strong>{holding.name}</strong>
+                      <strong>{money(holding.market_value)}</strong>
+                      <strong>{holding.latest_price === null ? '-' : holding.latest_price.toFixed(4)}</strong>
+                      <strong className={moneyTone(pnl)}>{signedMoney(pnl)}</strong>
+                      <small>{holding.instrument_code || holding.instrument_exchange || holding.instrument_id}</small>
+                      <small>{holding.quantity}</small>
+                      <small>{holding.average_cost.toFixed(4)}</small>
+                      <small>{holding.cost_basis ? percent(pnl / holding.cost_basis) : '0.0%'}</small>
+                    </div>
+                  </article>
+                )
+              }) : (
+                <div className="empty-holding">
+                  <WalletCards size={28} />
+                  <span>暂无持仓</span>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
 
       </div>
 

@@ -387,3 +387,59 @@ class PortfolioSnapshot(BaseModel):
     holdings: list[SnapshotHolding]
     cash_accounts: list[CashAccountRead]
     buckets: list[SnapshotBucket]
+
+
+class TrendPoint(BaseModel):
+    date: Date
+    total_value: float
+    holdings_value: float
+    cash_value: float
+
+
+class TrendSummary(BaseModel):
+    start_value: float
+    end_value: float
+    change_value: float
+    change_rate: float
+
+
+class PortfolioTrend(BaseModel):
+    portfolio_id: int
+    start_date: Date
+    end_date: Date
+    points: list[TrendPoint]
+    summary: TrendSummary
+
+
+class ProfitCalendarDay(BaseModel):
+    date: Date
+    total_value: float
+    holdings_value: float
+    cash_value: float
+    change_value: float
+    change_rate: float
+    buy_amount: float
+    sell_amount: float
+    fee: float
+    transaction_count: int
+
+
+class ProfitCalendarSummary(BaseModel):
+    month_change: float
+    month_change_rate: float
+    positive_days: int
+    negative_days: int
+    flat_days: int
+    buy_amount: float
+    sell_amount: float
+    fee: float
+
+
+class ProfitCalendar(BaseModel):
+    portfolio_id: int
+    year: int
+    month: int
+    start_date: Date
+    end_date: Date
+    days: list[ProfitCalendarDay]
+    summary: ProfitCalendarSummary

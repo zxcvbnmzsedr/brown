@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 import sys
+from calendar import monthrange
 from types import SimpleNamespace
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 import asyncio
 
@@ -890,6 +891,274 @@ def test_user_flow_uses_global_instrument_and_cash_account_adjustments():
         assert deleted.status_code == 204
         cash_accounts = client.get(f"/cash-accounts?portfolio_id={portfolio_id}", headers=headers)
         assert cash_accounts.json()[0]["balance"] == 10000
+
+    cleanup_test_db()
+
+
+def test_portfolio_trend_recalculates_holdings_and_cash_from_history():
+    reset_test_db()
+
+    with TestClient(app) as client:
+        day0 = date.today() - timedelta(days=4)
+        day1 = date.today() - timedelta(days=3)
+        day2 = date.today() - timedelta(days=2)
+        day4 = date.today()
+        admin = admin_headers(client)
+        broker_id, bank_id, instrument_id = seed_admin_catalog(client, admin)
+        for price_date, price in (
+            (day0.isoformat(), 2.0),
+            (day2.isoformat(), 4.0),
+        ):
+            assert client.put(
+                "/admin/instrument-prices/manual",
+                headers=admin,
+                json={"instrument_id": instrument_id, "price": price, "date": price_date},
+            ).status_code == 200
+
+        headers = user_headers(client)
+        other_headers = user_headers(client, email="other@example.com")
+        portfolio_id = client.get("/portfolios", headers=headers).json()[0]["id"]
+        other_portfolio_id = client.get("/portfolios", headers=other_headers).json()[0]["id"]
+
+        investment_account = client.post(
+            "/investment-accounts",
+            headers=headers,
+            json={
+                "portfolio_id": portfolio_id,
+                "trading_platform_id": broker_id,
+                "name": "华泰普通账户",
+                "is_active": True,
+            },
+        )
+        assert investment_account.status_code == 201
+        investment_account_id = investment_account.json()["id"]
+
+        cash_account = client.post(
+            "/cash-accounts",
+            headers=headers,
+            json={
+                "portfolio_id": portfolio_id,
+                "trading_platform_id": bank_id,
+                "name": "招商银行现金",
+                "currency": "CNY",
+                "balance": 1000,
+                "balance_date": day4.isoformat(),
+                "include_in_rebalance": True,
+                "is_active": True,
+            },
+        )
+        assert cash_account.status_code == 201
+        cash_account_id = cash_account.json()["id"]
+
+        configured = client.post(
+            "/user-assets",
+            headers=headers,
+            json={
+                "portfolio_id": portfolio_id,
+                "instrument_id": instrument_id,
+                "portfolio_group_id": None,
+                "account_id": investment_account_id,
+                "display_name": None,
+                "target_weight": 0.25,
+                "include_in_rebalance": True,
+                "is_active": True,
+            },
+        )
+        assert configured.status_code == 201
+
+        linked_buy = client.post(
+            "/transactions",
+            headers=headers,
+            json={
+                "portfolio_id": portfolio_id,
+                "instrument_id": instrument_id,
+                "account_id": investment_account_id,
+                "cash_account_id": cash_account_id,
+                "date": day1.isoformat(),
+                "type": "buy",
+                "qty": 10,
+                "price": 3,
+                "fee": 1,
+                "note": "linked",
+            },
+        )
+        assert linked_buy.status_code == 201
+
+        unlinked_buy = client.post(
+            "/transactions",
+            headers=headers,
+            json={
+                "portfolio_id": portfolio_id,
+                "instrument_id": instrument_id,
+                "account_id": investment_account_id,
+                "cash_account_id": None,
+                "date": day2.isoformat(),
+                "type": "buy",
+                "qty": 5,
+                "price": 4,
+                "fee": 0,
+                "note": "unlinked",
+            },
+        )
+        assert unlinked_buy.status_code == 201
+
+        trend = client.get(f"/portfolios/{portfolio_id}/trend?days=7", headers=headers)
+        assert trend.status_code == 200
+        body = trend.json()
+        assert body["portfolio_id"] == portfolio_id
+        assert len(body["points"]) == 7
+        assert body["start_date"] <= day0.isoformat()
+        assert body["end_date"] >= day2.isoformat()
+
+        by_date = {point["date"]: point for point in body["points"]}
+        assert by_date[day0.isoformat()]["holdings_value"] == 0
+        assert by_date[day0.isoformat()]["cash_value"] == 1000
+        assert by_date[day1.isoformat()]["holdings_value"] == 20
+        assert by_date[day1.isoformat()]["cash_value"] == 969
+        assert by_date[day2.isoformat()]["holdings_value"] == 60
+        assert by_date[day2.isoformat()]["cash_value"] == 969
+        assert by_date[day2.isoformat()]["total_value"] == 1029
+        assert body["summary"]["end_value"] == body["points"][-1]["total_value"]
+        assert body["summary"]["change_value"] == body["summary"]["end_value"] - body["summary"]["start_value"]
+
+        blocked = client.get(f"/portfolios/{other_portfolio_id}/trend", headers=headers)
+        assert blocked.status_code == 404
+
+    cleanup_test_db()
+
+
+def test_profit_calendar_summarizes_daily_asset_changes_and_transactions():
+    reset_test_db()
+
+    with TestClient(app) as client:
+        day0 = date.today() - timedelta(days=4)
+        day1 = date.today() - timedelta(days=3)
+        day2 = date.today() - timedelta(days=2)
+        admin = admin_headers(client)
+        broker_id, bank_id, instrument_id = seed_admin_catalog(client, admin)
+        for price_date, price in (
+            (day0.isoformat(), 2.0),
+            (day1.isoformat(), 3.0),
+            (day2.isoformat(), 4.0),
+        ):
+            assert client.put(
+                "/admin/instrument-prices/manual",
+                headers=admin,
+                json={"instrument_id": instrument_id, "price": price, "date": price_date},
+            ).status_code == 200
+
+        headers = user_headers(client)
+        other_headers = user_headers(client, email="calendar-other@example.com")
+        portfolio_id = client.get("/portfolios", headers=headers).json()[0]["id"]
+        other_portfolio_id = client.get("/portfolios", headers=other_headers).json()[0]["id"]
+
+        investment_account = client.post(
+            "/investment-accounts",
+            headers=headers,
+            json={
+                "portfolio_id": portfolio_id,
+                "trading_platform_id": broker_id,
+                "name": "华泰普通账户",
+                "is_active": True,
+            },
+        )
+        assert investment_account.status_code == 201
+        investment_account_id = investment_account.json()["id"]
+
+        cash_account = client.post(
+            "/cash-accounts",
+            headers=headers,
+            json={
+                "portfolio_id": portfolio_id,
+                "trading_platform_id": bank_id,
+                "name": "招商银行现金",
+                "currency": "CNY",
+                "balance": 1000,
+                "balance_date": date.today().isoformat(),
+                "include_in_rebalance": True,
+                "is_active": True,
+            },
+        )
+        assert cash_account.status_code == 201
+        cash_account_id = cash_account.json()["id"]
+
+        assert client.post(
+            "/user-assets",
+            headers=headers,
+            json={
+                "portfolio_id": portfolio_id,
+                "instrument_id": instrument_id,
+                "portfolio_group_id": None,
+                "account_id": investment_account_id,
+                "display_name": None,
+                "target_weight": 0.25,
+                "include_in_rebalance": True,
+                "is_active": True,
+            },
+        ).status_code == 201
+
+        assert client.post(
+            "/transactions",
+            headers=headers,
+            json={
+                "portfolio_id": portfolio_id,
+                "instrument_id": instrument_id,
+                "account_id": investment_account_id,
+                "cash_account_id": cash_account_id,
+                "date": day1.isoformat(),
+                "type": "buy",
+                "qty": 10,
+                "price": 3,
+                "fee": 1,
+                "note": "linked",
+            },
+        ).status_code == 201
+        assert client.post(
+            "/transactions",
+            headers=headers,
+            json={
+                "portfolio_id": portfolio_id,
+                "instrument_id": instrument_id,
+                "account_id": investment_account_id,
+                "cash_account_id": None,
+                "date": day2.isoformat(),
+                "type": "buy",
+                "qty": 5,
+                "price": 4,
+                "fee": 0,
+                "note": "unlinked",
+            },
+        ).status_code == 201
+
+        calendar = client.get(
+            f"/portfolios/{portfolio_id}/profit-calendar?year={day1.year}&month={day1.month}",
+            headers=headers,
+        )
+        assert calendar.status_code == 200
+        body = calendar.json()
+        assert body["portfolio_id"] == portfolio_id
+        assert body["year"] == day1.year
+        assert body["month"] == day1.month
+        assert len(body["days"]) == monthrange(day1.year, day1.month)[1]
+
+        by_date = {day["date"]: day for day in body["days"]}
+        assert by_date[day1.isoformat()]["change_value"] == -1
+        assert by_date[day1.isoformat()]["buy_amount"] == 31
+        assert by_date[day1.isoformat()]["fee"] == 1
+        assert by_date[day1.isoformat()]["transaction_count"] == 1
+        assert by_date[day2.isoformat()]["change_value"] == 30
+        assert by_date[day2.isoformat()]["buy_amount"] == 20
+        assert by_date[day2.isoformat()]["transaction_count"] == 1
+        assert body["summary"]["positive_days"] >= 1
+        assert body["summary"]["negative_days"] >= 1
+        assert body["summary"]["buy_amount"] == 51
+        assert body["summary"]["fee"] == 1
+
+        blocked = client.get(
+            f"/portfolios/{other_portfolio_id}/profit-calendar?year={day1.year}&month={day1.month}",
+            headers=headers,
+        )
+        assert blocked.status_code == 404
 
     cleanup_test_db()
 
