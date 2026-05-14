@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import sys
+from types import SimpleNamespace
 from datetime import date
 from pathlib import Path
 import asyncio
@@ -21,11 +23,22 @@ from server.app import app  # noqa: E402
 from server.db import SessionLocal, engine  # noqa: E402
 from server.models import Instrument, InstrumentImportJob, InstrumentPrice, TradingPlatform  # noqa: E402
 from server.services import instrument_sync  # noqa: E402
+from server.services import price_fetcher as price_fetcher_module  # noqa: E402
 from server.services.instrument_sync import InstrumentSyncPayload  # noqa: E402
 from server.services.price_fetcher import PriceFetcher, configured_price_target_count  # noqa: E402
 
 
 TODAY = date.today().isoformat()
+
+
+class FakeFrame:
+    def __init__(self, records: list[dict]) -> None:
+        self.records = records
+        self.empty = not records
+
+    def to_dict(self, orient: str = "records") -> list[dict]:
+        assert orient == "records"
+        return self.records
 
 
 def reset_test_db() -> None:
@@ -272,9 +285,9 @@ def test_price_fetch_only_targets_configured_user_assets():
             super().__init__()
             self.fetched_codes: list[str | None] = []
 
-        async def fetch_instrument_price(self, instrument: Instrument) -> float | None:
+        async def fetch_instrument_daily_price(self, instrument: Instrument, target_date: date):
             self.fetched_codes.append(instrument.code)
-            return 8.8
+            return price_fetcher_module.FetchedPrice(instrument.id, target_date, 8.8, instrument.currency, "fake")
 
     with TestClient(app) as client:
         admin = admin_headers(client)
@@ -320,9 +333,205 @@ def test_price_fetch_only_targets_configured_user_assets():
             prices = asyncio.run(fetcher.fetch_all_prices(db))
             assert configured_price_target_count(db) == 1
             assert fetcher.fetched_codes == ["510300"]
-            assert prices == {configured_instrument_id: 8.8}
+            assert prices == [price_fetcher_module.FetchedPrice(configured_instrument_id, date.today(), 8.8, "CNY", "fake")]
 
     cleanup_test_db()
+
+
+def test_fetch_all_prices_carries_actual_price_date_and_keeps_fetching_after_failure():
+    reset_test_db()
+
+    class FakePriceFetcher(PriceFetcher):
+        def __init__(self) -> None:
+            super().__init__()
+            self.fetched_codes: list[str | None] = []
+
+        async def fetch_instrument_daily_price(self, instrument: Instrument, target_date: date):
+            self.fetched_codes.append(instrument.code)
+            if instrument.code == "510300":
+                return price_fetcher_module.FetchedPrice(instrument.id, date(2026, 5, 11), 4.56, "CNY", "fake")
+            raise RuntimeError("provider failed")
+
+    with TestClient(app) as client:
+        admin = admin_headers(client)
+        _broker_id, _bank_id, configured_instrument_id = seed_admin_catalog(client, admin)
+        failing = client.post(
+            "/admin/instruments",
+            headers=admin,
+            json={
+                "name": "黄金 ETF",
+                "type": "gold",
+                "code": "518880",
+                "exchange": "SH",
+                "currency": "CNY",
+                "source": "manual",
+                "is_active": True,
+            },
+        )
+        assert failing.status_code == 201
+
+        headers = user_headers(client)
+        portfolio_id = client.get("/portfolios", headers=headers).json()[0]["id"]
+        for instrument_id in (configured_instrument_id, failing.json()["id"]):
+            configured = client.post(
+                "/user-assets",
+                headers=headers,
+                json={
+                    "portfolio_id": portfolio_id,
+                    "instrument_id": instrument_id,
+                    "portfolio_group_id": None,
+                    "account_id": None,
+                    "display_name": None,
+                    "target_weight": 0.25,
+                    "include_in_rebalance": True,
+                    "is_active": True,
+                },
+            )
+            assert configured.status_code == 201
+
+        with SessionLocal() as db:
+            fetcher = FakePriceFetcher()
+            prices = asyncio.run(fetcher.fetch_all_prices(db, target_date=date(2026, 5, 12)))
+            assert fetcher.fetched_codes == ["510300", "518880"]
+            assert prices == [price_fetcher_module.FetchedPrice(configured_instrument_id, date(2026, 5, 11), 4.56, "CNY", "fake")]
+
+            saved = fetcher.save_prices(db, prices)
+            assert saved == 1
+            rows = db.scalars(select(InstrumentPrice).order_by(InstrumentPrice.date)).all()
+            assert [(row.instrument_id, row.date, row.price) for row in rows] == [
+                (configured_instrument_id, date(2026, 5, 11), 4.56)
+            ]
+
+            updated = fetcher.save_prices(
+                db,
+                [price_fetcher_module.FetchedPrice(configured_instrument_id, date(2026, 5, 11), 4.78, "USD", "fake")],
+            )
+            assert updated == 1
+            rows = db.scalars(select(InstrumentPrice)).all()
+            assert len(rows) == 1
+            assert rows[0].date == date(2026, 5, 11)
+            assert rows[0].price == 4.78
+            assert rows[0].currency == "USD"
+
+    cleanup_test_db()
+
+
+def test_akshare_daily_price_providers_parse_close_and_nav_dates(monkeypatch):
+    calls: list[tuple[str, dict]] = []
+
+    def stock_zh_a_hist(**kwargs):
+        calls.append(("stock", kwargs))
+        return FakeFrame([{"日期": "2026-05-12", "收盘": "12.34"}])
+
+    def fund_etf_hist_em(**kwargs):
+        calls.append(("etf", kwargs))
+        return FakeFrame([{"日期": "2026-05-12", "收盘": "4.56"}])
+
+    def fund_open_fund_info_em(**kwargs):
+        calls.append(("fund", kwargs))
+        return FakeFrame(
+            [
+                {"净值日期": "2026-05-10", "单位净值": "1.01"},
+                {"净值日期": "2026-05-11", "单位净值": "1.23"},
+                {"净值日期": "2026-05-13", "单位净值": "1.45"},
+            ]
+        )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "akshare",
+        SimpleNamespace(
+            stock_zh_a_hist=stock_zh_a_hist,
+            fund_etf_hist_em=fund_etf_hist_em,
+            fund_open_fund_info_em=fund_open_fund_info_em,
+        ),
+    )
+
+    fetcher = PriceFetcher()
+    stock = Instrument(id=1, name="浦发银行", type="stock", code="600000", exchange="SH", currency="CNY")
+    etf = Instrument(id=2, name="沪深300 ETF", type="etf", code="510300", exchange="SH", currency="CNY")
+    fund = Instrument(id=3, name="易方达基金", type="fund", code="110022", exchange=None, currency="CNY")
+
+    assert asyncio.run(fetcher.fetch_instrument_daily_price(stock, date(2026, 5, 12))) == price_fetcher_module.FetchedPrice(
+        1, date(2026, 5, 12), 12.34, "CNY", "akshare_stock_zh_a_hist"
+    )
+    assert asyncio.run(fetcher.fetch_instrument_daily_price(etf, date(2026, 5, 12))) == price_fetcher_module.FetchedPrice(
+        2, date(2026, 5, 12), 4.56, "CNY", "akshare_fund_etf_hist_em"
+    )
+    assert asyncio.run(fetcher.fetch_instrument_daily_price(fund, date(2026, 5, 12))) == price_fetcher_module.FetchedPrice(
+        3, date(2026, 5, 11), 1.23, "CNY", "akshare_fund_open_fund_info_em"
+    )
+    assert calls == [
+        (
+            "stock",
+            {"symbol": "600000", "period": "daily", "start_date": "20260512", "end_date": "20260512", "adjust": ""},
+        ),
+        (
+            "etf",
+            {"symbol": "510300", "period": "daily", "start_date": "20260512", "end_date": "20260512", "adjust": ""},
+        ),
+        ("fund", {"symbol": "110022", "indicator": "单位净值走势"}),
+    ]
+
+
+def test_yfinance_provider_derives_market_tickers_and_uses_close(monkeypatch):
+    calls: list[tuple[str, str, str]] = []
+
+    class FakeTicker:
+        def __init__(self, ticker: str) -> None:
+            self.ticker = ticker
+
+        def history(self, start: str, end: str):
+            calls.append((self.ticker, start, end))
+            return FakeFrame([{"Close": "456.7"}])
+
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=FakeTicker))
+
+    fetcher = PriceFetcher()
+    hk = Instrument(id=7, name="腾讯控股", type="stock", code="0700", exchange="HK", currency="HKD")
+    sh = Instrument(id=8, name="贵州茅台", type="stock", code="600519", exchange="SH", currency="CNY")
+    sz = Instrument(id=9, name="平安银行", type="stock", code="000001", exchange="SZ", currency="CNY")
+
+    assert asyncio.run(fetcher.fetch_yfinance_daily_price(hk, date(2026, 5, 12))) == price_fetcher_module.FetchedPrice(
+        7, date(2026, 5, 12), 456.7, "HKD", "yfinance"
+    )
+    assert asyncio.run(fetcher.fetch_yfinance_daily_price(sh, date(2026, 5, 12))) == price_fetcher_module.FetchedPrice(
+        8, date(2026, 5, 12), 456.7, "CNY", "yfinance"
+    )
+    assert asyncio.run(fetcher.fetch_yfinance_daily_price(sz, date(2026, 5, 12))) == price_fetcher_module.FetchedPrice(
+        9, date(2026, 5, 12), 456.7, "CNY", "yfinance"
+    )
+    assert calls == [
+        ("0700.HK", "2026-05-12", "2026-05-13"),
+        ("600519.SS", "2026-05-12", "2026-05-13"),
+        ("000001.SZ", "2026-05-12", "2026-05-13"),
+    ]
+
+
+def test_fetch_instrument_daily_price_falls_back_to_yfinance_when_cn_provider_has_no_data(monkeypatch):
+    calls: list[str] = []
+
+    class FakeTicker:
+        def __init__(self, ticker: str) -> None:
+            self.ticker = ticker
+
+        def history(self, start: str, end: str):
+            calls.append(self.ticker)
+            return FakeFrame([{"Close": "1354.55"}])
+
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=FakeTicker))
+
+    class FallbackFetcher(PriceFetcher):
+        async def fetch_cn_stock_daily_price(self, instrument: Instrument, target_date: date):
+            return None
+
+    fetcher = FallbackFetcher()
+    sh = Instrument(id=10, name="贵州茅台", type="stock", code="600519", exchange="SH", currency="CNY")
+
+    assert asyncio.run(fetcher.fetch_instrument_daily_price(sh, date(2026, 5, 12))) == price_fetcher_module.FetchedPrice(
+        10, date(2026, 5, 12), 1354.55, "CNY", "yfinance"
+    )
+    assert calls == ["600519.SS"]
 
 
 def test_price_status_can_filter_configured_instruments():
